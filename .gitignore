@@ -1,0 +1,18 @@
+# Composer dependencies
+vendor/
+
+# Database & Sensitive Configs
+config/db_connect.php
+config/auth.php
+config/employee_db.php
+config/notification.php
+
+# Temporary & Backup files
+**/#*
+**/*.bak
+**/*.lock
+**/*.debugbak
+
+# Ignore Excel and Backup files
+cc_plp/backup_file/
+*.xlsx

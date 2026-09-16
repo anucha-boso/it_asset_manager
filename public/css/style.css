@@ -1,0 +1,445 @@
+/* =============================================================================
+   IT Asset Manager — Custom styles on top of Bootstrap 5
+   ============================================================================= */
+
+:root {
+    --pcs-bg: #f4f6fa;
+    --pcs-sidebar: #0f172a;
+    /* slate-900 */
+    --pcs-sidebar-2: #1e293b;
+    /* slate-800 */
+    --pcs-text: #e2e8f0;
+    --pcs-muted: #94a3b8;
+    --pcs-accent: #38bdf8;
+    /* sky-400 */
+    --pcs-border: #e5e7eb;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--pcs-bg);
+    font-family: "Inter", "Sarabun", system-ui, -apple-system, sans-serif;
+    color: #0f172a;
+}
+
+/* ---------------- App shell ---------------- */
+.app-shell {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    min-height: 100vh;
+}
+
+/* ---------------- Sidebar ---------------- */
+.app-sidebar {
+    background: linear-gradient(180deg, var(--pcs-sidebar) 0%, var(--pcs-sidebar-2) 100%);
+    color: var(--pcs-text);
+    padding: 24px 16px;
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, .2) transparent;
+}
+
+.app-sidebar::-webkit-scrollbar {
+    width: 6px;
+}
+
+.app-sidebar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, .2);
+    border-radius: 999px;
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 8px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, .08);
+    margin-bottom: 16px;
+}
+
+.brand-mark {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    background: var(--pcs-accent);
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 14px;
+    letter-spacing: .5px;
+}
+
+.brand-title {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.brand-sub {
+    font-size: 12px;
+    color: var(--pcs-muted);
+}
+
+.app-sidebar .nav-link {
+    color: var(--pcs-muted);
+    padding: 10px 12px;
+    border-radius: 8px;
+    margin-bottom: 4px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.app-sidebar .nav-link:hover {
+    background: rgba(255, 255, 255, .05);
+    color: #fff;
+}
+
+.app-sidebar .nav-link.active {
+    background: rgba(56, 189, 248, .15);
+    color: #fff;
+}
+
+.app-sidebar .nav-link i {
+    font-size: 16px;
+}
+
+.sidebar-foot {
+    margin-top: auto;
+    padding: 12px 8px 0;
+    color: var(--pcs-muted);
+    border-top: 1px solid rgba(255, 255, 255, .08);
+}
+
+/* ---------------- Topbar / content ---------------- */
+.app-main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.app-topbar {
+    background: #fff;
+    border-bottom: 1px solid var(--pcs-border);
+    padding: 18px 28px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.topbar-title {
+    font-size: 18px;
+    margin: 0;
+    font-weight: 600;
+}
+
+.app-content {
+    padding: 24px 28px;
+    flex: 1;
+}
+
+.app-footer {
+    padding: 16px 28px;
+    border-top: 1px solid var(--pcs-border);
+    background: #fff;
+}
+
+/* ---------------- Cards / metrics ---------------- */
+.card {
+    border: 1px solid var(--pcs-border);
+    border-radius: 12px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+    overflow: hidden;
+}
+
+.metric-card {
+    overflow: hidden;
+    position: relative;
+}
+
+.metric-card .card-body {
+    padding: 18px 20px;
+}
+
+.metric-label {
+    font-size: 12px;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    font-weight: 600;
+}
+
+.metric-value {
+    font-size: 32px;
+    font-weight: 700;
+    line-height: 1.1;
+    margin-top: 6px;
+    color: #0f172a;
+}
+
+.metric-divider {
+    color: #cbd5e1;
+    margin: 0 4px;
+    font-weight: 400;
+}
+
+.metric-muted {
+    color: #94a3b8;
+    font-weight: 500;
+    font-size: 24px;
+}
+
+.metric-sub {
+    font-size: 12px;
+    color: #64748b;
+    margin-top: 8px;
+}
+
+.metric-blue {
+    border-left: 4px solid #3b82f6;
+}
+
+.metric-teal {
+    border-left: 4px solid #14b8a6;
+}
+
+.metric-amber {
+    border-left: 4px solid #f59e0b;
+}
+
+.metric-red {
+    border-left: 4px solid #ef4444;
+}
+
+/* ---------------- Tables ---------------- */
+.table {
+    font-size: 13px;
+}
+
+.table thead th {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    color: #475569;
+}
+
+.table td,
+.table th {
+    vertical-align: middle;
+    border-bottom-color: #f1f5f9;
+}
+
+.table .progress {
+    border-radius: 999px;
+}
+
+.table .progress-bar {
+    border-radius: 999px;
+}
+
+.card-header {
+    border-bottom: 1px solid var(--pcs-border);
+}
+
+/* ---------------- Responsive ---------------- */
+@media (max-width: 992px) {
+    .app-shell {
+        grid-template-columns: 1fr;
+    }
+
+    .app-sidebar {
+        position: static;
+        height: auto;
+    }
+}
+
+/* ---------------- KPI icon + breakdown chips (mobile/hardware redesign) ---------------- */
+.metric-label i {
+    margin-right: 6px;
+    font-size: 14px;
+    vertical-align: -1px;
+}
+
+.filter-active-chip {
+    font-size: 12px;
+    color: #0ea5e9;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 8px;
+}
+
+.breakdown-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #f8fafc;
+    border: 1px solid var(--pcs-border);
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 12px;
+    color: #475569;
+}
+
+.breakdown-chip strong {
+    color: #0f172a;
+    font-weight: 700;
+}
+
+.device-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 15px;
+}
+
+.device-icon.icon-blue {
+    background: #e6f1fb;
+    color: #185fa5;
+}
+
+.device-icon.icon-amber {
+    background: #faeeda;
+    color: #854f0b;
+}
+
+.device-icon.icon-teal {
+    background: #e1f5ee;
+    color: #0f6e56;
+}
+
+.device-icon.icon-gray {
+    background: #f1f5f9;
+    color: #475569;
+}
+
+/* ---------------- Dashboard v2: needs-attention strip ---------------- */
+.attn-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.attn-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid var(--pcs-border);
+    background: #fff;
+    color: #0f172a;
+    transition: border-color .15s ease, background .15s ease;
+}
+
+.attn-pill:hover {
+    border-color: #cbd5e1;
+}
+
+.attn-pill .attn-count {
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.attn-pill.is-clear {
+    color: #64748b;
+}
+
+.attn-pill.is-clear .attn-count {
+    color: #64748b;
+}
+
+.attn-pill.is-warn {
+    background: #fffbeb;
+    border-color: #fde68a;
+    color: #92400e;
+}
+
+.attn-pill.is-warn .attn-count {
+    color: #b45309;
+}
+
+.attn-pill.is-danger {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #991b1b;
+}
+
+.attn-pill.is-danger .attn-count {
+    color: #dc2626;
+}
+
+/* ---------------- Dashboard v2: Total Devices hero ---------------- */
+.hero-card .card-body {
+    padding: 26px 28px;
+}
+
+.hero-label {
+    font-size: 13px;
+    color: #64748b;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+}
+
+.hero-value {
+    font-size: 56px;
+    font-weight: 800;
+    line-height: 1;
+    color: #0f172a;
+    letter-spacing: -1px;
+    margin-top: 6px;
+}
+
+.composition-bar {
+    display: flex;
+    height: 10px;
+    border-radius: 999px;
+    overflow: hidden;
+    margin: 18px 0 14px;
+    background: #f1f5f9;
+}
+
+.composition-bar span {
+    height: 100%;
+}
+
+.composition-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    font-size: 13px;
+    color: #475569;
+}
+
+.composition-legend .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 6px;
+}
+
+.composition-legend strong {
+    color: #0f172a;
+    font-weight: 700;
+}

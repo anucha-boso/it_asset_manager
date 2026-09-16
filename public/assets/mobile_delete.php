@@ -1,0 +1,37 @@
+<?php
+/**
+ * Mobile Asset — Delete
+ * /var/www/lab/it-asset-manager/public/assets/mobile_delete.php
+ */
+declare(strict_types=1);
+require_once __DIR__ . '/../../config/db_connect.php';
+require_once __DIR__ . '/../../config/auth.php';
+require_role(['it_admin']);
+
+
+
+require_once __DIR__ . '/../../includes/csrf.php';
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405); exit('Method Not Allowed');
+}
+csrf_verify();
+
+$id = $_POST['id'] ?? '';
+if (!ctype_digit((string)$id) || (int)$id <= 0) {
+    $_SESSION['flash'] = ['type'=>'danger','message'=>'รหัสอุปกรณ์ไม่ถูกต้อง'];
+    header('Location: /it-asset-manager/assets/mobile.php'); exit;
+}
+
+try {
+    $stmt = db()->prepare("DELETE FROM mobile_assets WHERE id = :id");
+    $stmt->execute([':id' => (int)$id]);
+    $_SESSION['flash'] = $stmt->rowCount() > 0
+        ? ['type'=>'success','message'=>'ลบ Mobile Asset เรียบร้อยแล้ว']
+        : ['type'=>'warning','message'=>'ไม่พบอุปกรณ์ที่ต้องการลบ'];
+} catch (PDOException $e) {
+    error_log('[MOBILE DELETE] ' . $e->getMessage());
+    $_SESSION['flash'] = ['type'=>'danger','message'=>'ลบไม่สำเร็จ'];
+}
+header('Location: /it-asset-manager/assets/mobile.php');
+exit;
