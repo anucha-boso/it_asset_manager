@@ -5,8 +5,8 @@
  *
  * 2 โหมด (เหมือน profile/index.php):
  *   1) ไม่มี ?emp=   → ประวัติของตัวเอง (ผ่าน require_employee_link)
- *   2) มี ?emp=<id>  → ประวัติของพนักงานคนอื่น เฉพาะผู้ที่ผ่าน can('view')
- *                       (it_admin / it_staff / it_viewer) — it_borrower ได้ 403
+ *   2) มี ?emp=<id>  → ประวัติของพนักงานคนอื่น เฉพาะผู้ที่มีสิทธิ์ module EMPLOYEE_DIRECTORY
+ *                       (it_admin ผ่านเสมอ / คนอื่นต้องมี grant) — ไม่มีสิทธิ์ได้ 403
  *
  * เฟส 1: Asset Assign/Transfer/Return และ App Assign/Revoke (Software/Hardware/Mobile)
  * เฟส 2: Access Request Submitted/Approved/Rejected และ Permission Grant/Revoke
@@ -16,6 +16,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../config/db_connect.php';
 require_once __DIR__ . '/../../config/employee_db.php';
 require_once __DIR__ . '/../../config/auth.php';
+require_once __DIR__ . '/../../includes/module_access.php';   // can_access_module()
 require_once __DIR__ . '/../../includes/require_employee_link.php';
 
 require_role(['it_admin', 'it_staff', 'it_viewer', 'it_borrower']);
@@ -27,7 +28,7 @@ $empParam    = $_GET['emp'] ?? '';
 $isViewOther = ($empParam !== '');
 
 if ($isViewOther) {
-    if (!can('view')) {
+    if (!can_access_module('EMPLOYEE_DIRECTORY')) {
         http_response_code(403);
         exit('คุณไม่มีสิทธิ์ดูประวัติของพนักงานคนอื่น');
     }
@@ -81,7 +82,7 @@ function txnBadgeClass(string $type): string {
 
 $headingText = $isViewOther ? 'ประวัติของ ' . $fullName : 'ประวัติของฉัน';
 $page_title  = $headingText;
-$active_menu = $isViewOther ? 'employees' : '';
+$active_menu = $isViewOther ? 'employee_directory' : '';
 require __DIR__ . '/../../includes/header.php';
 ?>
 

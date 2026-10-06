@@ -6,7 +6,7 @@
  * 2 โหมด:
  *   1) ไม่มี ?emp=      → โปรไฟล์ของตัวเอง (ผ่าน require_employee_link) แก้ไข Email ได้
  *   2) มี ?emp=<id>     → ดูโปรไฟล์พนักงานคนอื่น (อ่านอย่างเดียว)
- *                          เฉพาะผู้ที่มีสิทธิ์ can('view') = it_admin / it_staff / it_viewer
+ *                          เฉพาะผู้ที่มีสิทธิ์ module EMPLOYEE_DIRECTORY (it_admin ผ่านเสมอ, คนอื่นต้องถูก grant ที่ Module Access)
  *                          it_borrower จะได้ 403 (กัน IDOR จากการแก้ ?emp= ใน URL เอง)
  *
  * <id> คือ employees.id ใน cc_central_employee_db (ตัวเดียวกับ assigned_employee_id)
@@ -16,6 +16,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../config/db_connect.php';
 require_once __DIR__ . '/../../config/employee_db.php';
 require_once __DIR__ . '/../../config/auth.php';
+require_once __DIR__ . '/../../includes/module_access.php';   // can_access_module()
 require_once __DIR__ . '/../../includes/csrf.php';
 require_once __DIR__ . '/../../includes/require_employee_link.php';
 
@@ -29,7 +30,7 @@ $empParam    = $_GET['emp'] ?? '';
 $isViewOther = ($empParam !== '');
 
 if ($isViewOther) {
-    if (!can('view')) {
+    if (!can_access_module('EMPLOYEE_DIRECTORY')) {
         http_response_code(403);
         exit('คุณไม่มีสิทธิ์ดูโปรไฟล์ของพนักงานคนอื่น');
     }
@@ -184,7 +185,7 @@ foreach ($accessRaw as $acc) {
 
 $flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
 $page_title  = $isViewOther ? 'โปรไฟล์พนักงาน: ' . $fullName : 'โปรไฟล์ของฉัน';
-$active_menu = $isViewOther ? 'employees' : '';
+$active_menu = $isViewOther ? 'employee_directory' : '';
 require __DIR__ . '/../../includes/header.php';
 ?>
 

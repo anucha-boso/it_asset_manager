@@ -2,7 +2,7 @@
 /**
  * Employee Directory — ภาพรวมพนักงานที่ถือ Asset/License/Loan/Access
  * public/employees/directory.php
- * เฉพาะ it_admin / it_staff
+ * เฉพาะ it_admin หรือผู้ที่ถูก grant module EMPLOYEE_DIRECTORY ที่หน้า Module Access
  *
  * เปลี่ยนจากเดิม (ต้องค้นหาก่อนถึงจะเห็นใคร + แสดงโปรไฟล์ซ้ำในหน้านี้)
  * เป็นตารางภาพรวม แล้วกดเข้า profile/index.php?emp=<id> แทน
@@ -23,8 +23,9 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../config/db_connect.php';
 require_once __DIR__ . '/../../config/employee_db.php';
 require_once __DIR__ . '/../../config/auth.php';
+require_once __DIR__ . '/../../includes/module_access.php';   // can_access_module() / require_module_access()
 
-require_role(['it_admin', 'it_staff']);
+require_module_access('EMPLOYEE_DIRECTORY');   // it_admin ผ่านเสมอ, คนอื่นต้องถูก grant ที่ Module Access
 
 // ------ Backward compatibility: ลิงก์เดิม ?id=X → ไปหน้าโปรไฟล์ ------
 if (isset($_GET['id']) && ctype_digit((string)$_GET['id']) && (int)$_GET['id'] > 0) {
