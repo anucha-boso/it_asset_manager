@@ -146,6 +146,7 @@ $m_maintenance = can_access_module('MAINTENANCE');
 $m_loans       = can_access_module('LOANS');
 $m_access_req  = can_access_module('ACCESS_REQUESTS');
 $m_sites       = can_access_module('SITES');
+$m_emp_dir     = can_access_module('EMPLOYEE_DIRECTORY');
 ?>
 
     <!-- Dashboard: เห็นได้ทุกคนที่ login (ไม่ผูกกับ module grant) -->
@@ -227,12 +228,21 @@ $m_sites       = can_access_module('SITES');
     </a>
 <?php endif; ?>
 
-<?php if ($m_sites): ?>
+<?php if ($m_sites || $m_emp_dir): ?>
     <div class="nav-section-label">System</div>
+<?php endif; ?>
 
+<?php if ($m_sites): ?>
     <a class="nav-link <?= nav_active('sites', $active_menu) ?>"
        href="/it-asset-manager/sites/index.php">
         <i class="bi bi-geo-alt"></i> Sites
+    </a>
+<?php endif; ?>
+
+<?php if ($m_emp_dir): ?>
+    <a class="nav-link <?= nav_active('employee_directory', $active_menu) ?>"
+       href="/it-asset-manager/employees/directory.php">
+        <i class="bi bi-people"></i> Employee Directory
     </a>
 <?php endif; ?>
 
@@ -247,11 +257,6 @@ $m_sites       = can_access_module('SITES');
         <a class="nav-link <?= nav_active('access_applications', $active_menu) ?>"
        href="/it-asset-manager/administration/access-applications.php">
         <i class="bi bi-diagram-3"></i> Approver Setup
-    </a>
-
-    <a class="nav-link <?= nav_active('employee_directory', $active_menu) ?>"
-       href="/it-asset-manager/employees/directory.php">
-        <i class="bi bi-people"></i> Employee Directory
     </a>
     <?php endif; ?>
 

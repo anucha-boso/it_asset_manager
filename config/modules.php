@@ -18,5 +18,6 @@ function iam_module_list(): array
         'NETWORK'         => ['label' => 'Network Devices'],
         'SITES'           => ['label' => 'Sites'],
         'ACCESS_REQUESTS' => ['label' => 'Access Requests'],
+        'EMPLOYEE_DIRECTORY' => ['label' => 'Employee Directory (ดูโปรไฟล์พนักงาน)'],
     ];
 }
