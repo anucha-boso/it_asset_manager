@@ -200,8 +200,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors['loan_date'] = 'รูปแบบวันที่ไม่ถูกต้อง';
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $row['expected_return']))
         $errors['expected_return'] = 'รูปแบบวันที่ไม่ถูกต้อง';
-    if (!$errors && $row['expected_return'] <= $row['loan_date'])
-        $errors['expected_return'] = 'กำหนดคืนต้องหลังวันที่ยืม';
+    if (!$errors && $row['expected_return'] < $row['loan_date'])
+        $errors['expected_return'] = 'กำหนดคืนต้องไม่ก่อนวันที่ยืม';
     if (!$errors) {
         $loanDays = (strtotime($row['expected_return']) - strtotime($row['loan_date'])) / 86400;
         if ($loanDays > 90) {
