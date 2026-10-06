@@ -17,6 +17,16 @@ $pdo  = db();
 $user = iam_user();
 $isBorrowerOnly = is_borrower_only();
 
+/* borrower ต้องมี employee link ถึงจะรู้ว่า loan ไหนเป็นของตัวเอง
+   (ใช้ pattern เดียวกับ loans/form.php — borrower_employee_id เป็นตัวหลัก
+   แม่นกว่าเทียบ borrower_ad กับ session username ซึ่งเป็นคนละค่ากัน) */
+$myEmployeeId = null;
+if ($isBorrowerOnly) {
+    require_once __DIR__ . '/../../config/employee_db.php';
+    require_once __DIR__ . '/../../includes/require_employee_link.php';
+    $myEmployeeId = require_employee_link();
+}
+
 /* ── Auto-sweep overdue ──────────────────────────────────────── */
 if (!$isBorrowerOnly) {
     $pdo->exec("
@@ -35,10 +45,12 @@ $search = trim((string)($_GET['q'] ?? ''));
 $where  = [];
 $params = [];
 
-/* it_borrower เห็นเฉพาะ loan ของตัวเอง */
+/* it_borrower เห็นเฉพาะ loan ของตัวเอง — กรองด้วย borrower_employee_id
+   ไม่ใช่ borrower_ad เพราะ loans/form.php เซฟ borrower_ad จาก employees.person_code
+   (HR) ไม่ใช่จาก session username ของ cc_central_auth สองค่านี้ไม่จำเป็นต้องตรงกัน */
 if ($isBorrowerOnly) {
-    $where[]              = "l.borrower_ad = :my_ad";
-    $params[':my_ad']     = $user['username'];
+    $where[]              = "l.borrower_employee_id = :my_eid";
+    $params[':my_eid']    = $myEmployeeId;
     /* borrower ไม่มี tab pending/history — แสดงทั้งหมดของตัวเอง */
     $tab = 'all';
 } else {

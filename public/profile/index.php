@@ -1,7 +1,15 @@
 <?php
 /**
- * My Profile — แก้ไข Email + ดูภาพรวม Asset/Application/License/Access
+ * Profile — ดูภาพรวม Asset/License/Loan/Access ของพนักงาน
  * public/profile/index.php
+ *
+ * 2 โหมด:
+ *   1) ไม่มี ?emp=      → โปรไฟล์ของตัวเอง (ผ่าน require_employee_link) แก้ไข Email ได้
+ *   2) มี ?emp=<id>     → ดูโปรไฟล์พนักงานคนอื่น (อ่านอย่างเดียว)
+ *                          เฉพาะผู้ที่มีสิทธิ์ can('view') = it_admin / it_staff / it_viewer
+ *                          it_borrower จะได้ 403 (กัน IDOR จากการแก้ ?emp= ใน URL เอง)
+ *
+ * <id> คือ employees.id ใน cc_central_employee_db (ตัวเดียวกับ assigned_employee_id)
  */
 declare(strict_types=1);
 
@@ -13,8 +21,27 @@ require_once __DIR__ . '/../../includes/require_employee_link.php';
 
 require_role(['it_admin', 'it_staff', 'it_viewer', 'it_borrower']);
 
-$pdo        = db();
-$employeeId = require_employee_link();
+$pdo = db();
+
+// ------ เลือกพนักงานที่จะแสดง (ตัวเอง หรือ คนอื่นผ่าน ?emp=) ------
+// สำคัญ: เช็คสิทธิ์ฝั่ง server เสมอ — การซ่อนลิงก์อย่างเดียวไม่พอ
+$empParam    = $_GET['emp'] ?? '';
+$isViewOther = ($empParam !== '');
+
+if ($isViewOther) {
+    if (!can('view')) {
+        http_response_code(403);
+        exit('คุณไม่มีสิทธิ์ดูโปรไฟล์ของพนักงานคนอื่น');
+    }
+    $employeeId = filter_var($empParam, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+    if ($employeeId === false) {
+        http_response_code(400);
+        exit('รหัสพนักงานไม่ถูกต้อง');
+    }
+} else {
+    // admin ที่ยังไม่ได้ link กับ employee ก็ยังเข้าโหมดดูคนอื่นได้ เพราะไม่ผ่านบรรทัดนี้
+    $employeeId = require_employee_link();
+}
 
 $empStmt = employee_db()->prepare("
     SELECT title, first_name, last_name, department, position, person_code
@@ -23,18 +50,35 @@ $empStmt = employee_db()->prepare("
 $empStmt->execute([':id' => $employeeId]);
 $employee = $empStmt->fetch();
 if (!$employee) {
+    if ($isViewOther) {
+        http_response_code(404);
+        exit('ไม่พบข้อมูลพนักงานรหัสนี้');
+    }
     http_response_code(500);
     exit('ไม่พบข้อมูลพนักงาน กรุณาติดต่อ IT Admin');
 }
 $fullName = trim($employee['title'] . ' ' . $employee['first_name'] . ' ' . $employee['last_name']);
 
-$contactStmt = $pdo->prepare("SELECT email FROM employee_contacts WHERE employee_id = :id");
-$contactStmt->execute([':id' => $employeeId]);
-$currentEmail = $contactStmt->fetchColumn() ?: '';
+// query string สำหรับต่อท้ายลิงก์ในหน้านี้ (เช่น history.php) ให้คงโหมดเดิม
+$empQs = $isViewOther ? '?emp=' . $employeeId : '';
+
+// ------ Email (เฉพาะโปรไฟล์ตัวเอง — ไม่ดึง PII ของคนอื่นมาแสดง) ------
+$currentEmail = '';
+if (!$isViewOther) {
+    $contactStmt = $pdo->prepare("SELECT email FROM employee_contacts WHERE employee_id = :id");
+    $contactStmt->execute([':id' => $employeeId]);
+    $currentEmail = $contactStmt->fetchColumn() ?: '';
+}
 
 $errors = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // โหมดดูคนอื่นเป็น read-only — กัน POST ตรงๆ แม้ฟอร์มจะถูกซ่อนแล้ว
+    if ($isViewOther) {
+        http_response_code(403);
+        exit('ไม่สามารถแก้ไขโปรไฟล์ของพนักงานคนอื่นจากหน้านี้ได้');
+    }
+
     csrf_verify();
     $email = trim((string)($_POST['email'] ?? ''));
 
@@ -74,7 +118,7 @@ $hwStmt = $pdo->prepare("
 $hwStmt->execute([':eid' => $employeeId]);
 $myHardwareAssets = $hwStmt->fetchAll();
 
-// ------ Mobile Assets (เพิ่มใหม่ — เดิมไม่เคยถูกนับรวมในหน้า Profile เลย) ------
+// ------ Mobile Assets ------
 $mobStmt = $pdo->prepare("
     SELECT asset_id, device_type AS category, brand, model, status
     FROM mobile_assets
@@ -84,10 +128,10 @@ $mobStmt = $pdo->prepare("
 $mobStmt->execute([':eid' => $employeeId]);
 $myMobileAssets = $mobStmt->fetchAll();
 
-// ------ Assets รวม (Hardware + Mobile) — ใช้ทั้งการนับ KPI และแสดงผลการ์ดเดียวกัน ------
+// ------ Assets รวม (Hardware + Mobile) ------
 $myAssets = array_merge($myHardwareAssets, $myMobileAssets);
 
-// ------ Software Licenses (ของเดิมเคยชื่อ $myApps — เปลี่ยนชื่อให้ตรงความหมาย) ------
+// ------ Software Licenses ------
 $licStmt = $pdo->prepare("
     SELECT sl.software_name, sl.publisher, m.status, m.install_date
     FROM software_allocation_map m
@@ -98,7 +142,7 @@ $licStmt = $pdo->prepare("
 $licStmt->execute([':eid' => $employeeId]);
 $myLicenses = $licStmt->fetchAll();
 
-// ------ Loans (Hardware + Mobile + Network — asset_loans.borrower_employee_id) ------
+// ------ Loans (Hardware + Mobile + Network) ------
 $loanStmt = $pdo->prepare("
     SELECT l.loan_code, l.status, l.loan_date, l.expected_return,
         DATEDIFF(l.expected_return, CURRENT_DATE) AS days_left,
@@ -117,14 +161,7 @@ $loanStmt->execute([':eid' => $employeeId]);
 $myLoans = $loanStmt->fetchAll();
 
 // ------ Access / Permission (completed requests) ------
-// กรองด้วย beneficiary_employee_id เท่านั้น (ไม่รวม requestor_employee_id) —
-// แสดงเฉพาะสิทธิ์ที่ตัวเอง "ถืออยู่จริง" ไม่ปนกับคำขอที่ตัวเองแค่กดขอให้คนอื่น
-// (เช่น IT ขอสิทธิ์ CCMS แทนพนักงานอีกคน — request นั้นไม่ควรโผล่ในโปรไฟล์ของ IT)
-// หมายเหตุ: access_requests ไม่มีแนวคิด "รายการปัจจุบัน vs ประวัติ" — request ที่
-// Completed แล้วจะค้างอยู่ตลอดไปแม้จะขอสิทธิ์แอปเดิมซ้ำอีกครั้ง (เช่น อัปเกรดจาก
-// User เป็น Admin) ทำให้แอปเดียวกันโผล่ซ้ำหลายรายการ จึงต้อง dedupe เหลือแค่
-// รายการล่าสุดต่อ 1 แอป (query เรียง completed_at DESC มาแล้ว จึงเลือกรายการ
-// แรกที่เจอต่อ app_name ได้เลย โดยไม่ต้อง query ซ้ำ)
+// กรองด้วย beneficiary_employee_id เท่านั้น และ dedupe เหลือรายการล่าสุดต่อ 1 แอป
 $accStmt = $pdo->prepare("
     SELECT r.request_no, a.app_name, lv.level_name, r.access_level_text, r.status
     FROM access_requests r
@@ -146,10 +183,19 @@ foreach ($accessRaw as $acc) {
 }
 
 $flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
-$page_title  = 'โปรไฟล์ของฉัน';
-$active_menu = '';
+$page_title  = $isViewOther ? 'โปรไฟล์พนักงาน: ' . $fullName : 'โปรไฟล์ของฉัน';
+$active_menu = $isViewOther ? 'employees' : '';
 require __DIR__ . '/../../includes/header.php';
 ?>
+
+<?php if ($isViewOther): ?>
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <a href="/it-asset-manager/employees/directory.php" class="text-decoration-none small text-muted">
+            <i class="bi bi-arrow-left"></i> กลับไปรายชื่อพนักงาน
+        </a>
+        <span class="badge text-bg-light border"><i class="bi bi-eye"></i> โหมดดูอย่างเดียว</span>
+    </div>
+<?php endif; ?>
 
 <?php if ($flash): ?>
     <div class="alert alert-<?= e($flash['type']) ?> alert-dismissible fade show">
@@ -181,7 +227,7 @@ require __DIR__ . '/../../includes/header.php';
     </div>
 </div>
 
-<!-- ====== Summary Cards (4 ใบ — เพิ่ม Loans) ====== -->
+<!-- ====== Summary Cards ====== -->
 <div class="row g-3 mb-3">
     <div class="col-6 col-md-3">
         <div class="card metric-card metric-blue h-100">
@@ -217,7 +263,6 @@ require __DIR__ . '/../../includes/header.php';
             </div>
         </div>
     </div>
-
 </div>
 
 <!-- ====== Assets (Grid) ====== -->
@@ -244,7 +289,7 @@ require __DIR__ . '/../../includes/header.php';
     </div>
 </div>
 
-<!-- ====== Licenses (Grid) — เดิมชื่อ Applications ====== -->
+<!-- ====== Licenses (Grid) ====== -->
 <div class="card mb-3">
     <div class="card-header bg-white"><strong><i class="bi bi-box-seam"></i> Licenses</strong></div>
     <div class="card-body">
@@ -340,12 +385,13 @@ require __DIR__ . '/../../includes/header.php';
 </div>
 
 <div class="mb-3">
-    <a href="/it-asset-manager/profile/history.php" class="small text-decoration-none">
+    <a href="/it-asset-manager/profile/history.php<?= e($empQs) ?>" class="small text-decoration-none">
         <i class="bi bi-clock-history"></i> ดูประวัติทั้งหมด →
     </a>
 </div>
 
-<!-- ====== Email Settings ====== -->
+<?php if (!$isViewOther): ?>
+<!-- ====== Email Settings (เฉพาะโปรไฟล์ตัวเอง) ====== -->
 <div class="card mb-3" style="max-width:500px;">
     <div class="card-header bg-white"><strong><i class="bi bi-envelope"></i> การแจ้งเตือน</strong></div>
     <div class="card-body">
@@ -361,5 +407,6 @@ require __DIR__ . '/../../includes/header.php';
         </form>
     </div>
 </div>
+<?php endif; ?>
 
 <?php require __DIR__ . '/../../includes/footer.php'; ?>

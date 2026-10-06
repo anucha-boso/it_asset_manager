@@ -5,7 +5,10 @@
  *  Employee Sync — ดึงข้อมูลจาก WebTime API (GetEmployeePCS.aspx)
  *  /var/www/lab/it-asset-manager/cron/employee_sync.php
  * -----------------------------------------------------------------------------
- *  Filter: เฉพาะ EmployeeType = 'รายเดือน (Month)' AND ResignStatus = 'Active'
+ *  Step 4 (upsert): เฉพาะ EmployeeType = 'รายเดือน (Month)' AND ResignStatus = 'Active'
+ *  Step 5 (mark resigned): พนักงานที่ "มีอยู่ใน DB แล้ว" แต่ API ส่ง ResignStatus ≠ 'Active'
+ *          → UPDATE เฉพาะ resign_status / last_date / synced_at (ไม่ INSERT คนลาออกใหม่)
+ *          → ถ้า PersonID เดียวกันมี record ไหนเป็น Active อยู่ (เช่นกลับเข้าทำงานใหม่) จะไม่ mark
  *  Target: cc_central_employee_db.employees (cross-database, same MySQL instance)
  *  Run manual:  php /var/www/lab/it-asset-manager/cron/employee_sync.php
  * =============================================================================
@@ -212,6 +215,78 @@ foreach ($chunks as $chunk) {
         exit(1);
     }
 }
+
+// -----------------------------------------------------------------------------
+// 5) Mark ลาออก — แก้ปัญหา resign_status ค้างเป็น 'Active' ตลอดไป
+//    (เดิม record ของคนลาออกถูก filter ทิ้งในขั้น 3 จึงไม่เคยถูก UPDATE)
+//    ใช้ ResignStatus จาก HR ตรงๆ ไม่อนุมานจากการที่ record หายไปจาก API
+// -----------------------------------------------------------------------------
+
+// 5.1 PersonID ที่ยัง Active อยู่ใน API (ทุก EmployeeType) — ตัวนี้ชนะเสมอ
+$activePersonIds = [];
+$statusBreakdown = [];   // สรุปจำนวนต่อ ResignStatus ไว้ echo ลง log
+foreach ($allRecords as $r) {
+    $st = clean_str($r['ResignStatus'] ?? null) ?? '(null)';
+    $statusBreakdown[$st] = ($statusBreakdown[$st] ?? 0) + 1;
+    if ($st === 'Active') {
+        $activePersonIds[(string)($r['PersonID'] ?? '')] = true;
+    }
+}
+arsort($statusBreakdown);
+$parts = [];
+foreach ($statusBreakdown as $st => $n) $parts[] = "{$st}={$n}";
+echo "[INFO] ResignStatus breakdown: " . implode(', ', $parts) . "\n";
+
+// 5.2 ผู้สมัครที่จะ mark: ไม่ใช่ Active, ไม่มี record Active ซ้อน, ResignStatus ไม่ว่าง
+//     PersonID ซ้ำหลาย record → เก็บอันที่ LastDate ล่าสุด
+$resignCandidates = [];
+foreach ($allRecords as $r) {
+    $pid = (string)($r['PersonID'] ?? '');
+    $st  = clean_str($r['ResignStatus'] ?? null);
+    if ($pid === '' || $st === null || $st === 'Active' || isset($activePersonIds[$pid])) {
+        continue;
+    }
+    $ld = clean_date($r['LastDate'] ?? null);
+    if (!isset($resignCandidates[$pid]) || ($ld ?? '') > ($resignCandidates[$pid]['last_date'] ?? '')) {
+        $resignCandidates[$pid] = ['status' => $st, 'last_date' => $ld];
+    }
+}
+
+// 5.3 จำกัดเฉพาะคนที่มีอยู่ใน DB แล้ว (หลักร้อย) — ไม่ยิง UPDATE หลายพันครั้งต่อคืน
+$existingIds = $pdo->query("SELECT person_id FROM cc_central_employee_db.employees")
+                   ->fetchAll(PDO::FETCH_COLUMN);
+$toMark = array_intersect_key($resignCandidates, array_flip(array_map('strval', $existingIds)));
+
+// 5.4 UPDATE เฉพาะแถวที่ค่าเปลี่ยนจริง (<=> คือ NULL-safe equal)
+//     placeholder ห้ามซ้ำชื่อ (ATTR_EMULATE_PREPARES = false)
+$markStmt = $pdo->prepare("
+    UPDATE cc_central_employee_db.employees
+       SET resign_status = :st, last_date = :ld, synced_at = NOW()
+     WHERE person_id = :pid
+       AND (NOT (resign_status <=> :st2) OR NOT (last_date <=> :ld2))
+");
+
+$markedResigned = 0;
+if ($toMark) {
+    $pdo->beginTransaction();
+    try {
+        foreach ($toMark as $pid => $c) {
+            $markStmt->execute([
+                ':st'  => $c['status'], ':ld'  => $c['last_date'], ':pid' => (string)$pid,
+                ':st2' => $c['status'], ':ld2' => $c['last_date'],
+            ]);
+            $markedResigned += $markStmt->rowCount();
+        }
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        $msg = 'Mark resigned failed: ' . $e->getMessage();
+        fwrite(STDERR, "[ERROR] {$msg}\n");
+        log_sync_result($pdo, $totalFetched, $inserted, $updated, 'Failed', $msg);
+        exit(1);
+    }
+}
+echo "[INFO] Resigned in DB (matched): " . count($toMark) . ", newly marked/changed this run: {$markedResigned}\n";
 
 echo "[DONE] Inserted: {$inserted}, Updated: {$updated}\n";
 if ($unmatchedCompanies) {
