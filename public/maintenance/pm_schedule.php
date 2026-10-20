@@ -320,7 +320,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (PDOException $e) {
             $pdo->rollBack();
             error_log('[PM RESCHEDULE FAIL] ' . $e->getMessage());
-            $_SESSION['flash'] = ['type'=>'danger','message'=>'เลื่อนวันไม่สำเร็จ: ' . $e->getMessage()];
+            $_SESSION['flash'] = ['type'=>'danger','message'=>'เลื่อนวันไม่สำเร็จ กรุณาลองใหม่หรือติดต่อ IT Admin'];           
         }
         header('Location: /it-asset-manager/maintenance/pm_schedule.php');
         exit;

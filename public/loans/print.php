@@ -1,5 +1,4 @@
 <?php
-//ini_set("display_errors",1);error_reporting(E_ALL); 
 /**
  * Loan Print — ใบยืมอุปกรณ์ IT (print-friendly)
  * /var/www/lab/it-asset-manager/public/loans/print.php?id=N

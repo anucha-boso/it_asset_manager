@@ -1,5 +1,4 @@
 <?php
-ini_set("display_errors",1);error_reporting(E_ALL);
 /**
  * Mobile Asset — Add / Edit
  * /var/www/lab/it-asset-manager/public/assets/mobile_form.php
@@ -230,7 +229,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         } catch (PDOException $e) {
             error_log('[MOBILE SAVE] ' . $e->getMessage());
-            $errors['_general'] = 'บันทึกไม่สำเร็จ: ' . $e->getMessage();
+           $errors['_general'] = (($e->errorInfo[1] ?? 0) == 1062) ? 'บันทึกไม่สำเร็จ: ข้อมูลซ้ำกับรายการที่มีอยู่แล้ว (ตรวจ Asset ID / Serial)' : 'บันทึกไม่สำเร็จ กรุณาลองใหม่หรือติดต่อ IT Admin';           
         }
     }
 }

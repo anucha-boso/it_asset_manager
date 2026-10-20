@@ -1,5 +1,4 @@
 <?php
-//ini_set('display_errors', '1'); error_reporting(E_ALL);
 /**
  * Hardware Asset — Add / Edit
  * /var/www/lab/it-asset-manager/assets/form.php
@@ -373,7 +372,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (PDOException $e) {
             $pdo->rollBack();
             error_log('[ASSET SAVE FAIL] ' . $e->getMessage());
-            $errors['_general'] = 'บันทึกไม่สำเร็จ: ' . $e->getMessage();
+            $errors['_general'] = (($e->errorInfo[1] ?? 0) == 1062) ? 'บันทึกไม่สำเร็จ: ข้อมูลซ้ำกับรายการที่มีอยู่แล้ว (ตรวจ Asset ID / Serial)' : 'บันทึกไม่สำเร็จ กรุณาลองใหม่หรือติดต่อ IT Admin';            
         }
     }
 
