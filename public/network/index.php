@@ -8,6 +8,7 @@
 require_once __DIR__ . '/../../config/db_connect.php';
 require_once __DIR__ . '/../../config/auth.php';
 require_once __DIR__ . '/../../includes/csrf.php';
+require_once __DIR__ . '/../../includes/site_scope.php';
 require_role(['it_admin','it_staff','it_viewer']);
 
 $pdo = db();
@@ -21,7 +22,7 @@ $siteId     = ctype_digit((string)($_GET['site_id'] ?? '')) ? (int)$_GET['site_i
 
 $where  = [];
 $params = [];
-
+$where[] = site_scope_sql('n.site_id', $params);
 if ($search !== '') {
     $where[]       = '(n.asset_id LIKE :q1 OR n.hostname LIKE :q2
                     OR n.model LIKE :q3 OR n.ip_mgmt LIKE :q4
@@ -71,17 +72,21 @@ $kpiStmt->execute($params);
 $kpi = $kpiStmt->fetch();
 
 /* ── Locations ───────────────────────────────────────────────── */
-$locations = $pdo->query("
-    SELECT DISTINCT location FROM network_assets
-    WHERE location IS NOT NULL ORDER BY location
-")->fetchAll(PDO::FETCH_COLUMN);
+$locParams = [];
+$locStmt = $pdo->prepare("
+    SELECT DISTINCT n.location FROM network_assets n
+    WHERE n.location IS NOT NULL AND " . site_scope_sql('n.site_id', $locParams, 'sl') . "
+    ORDER BY n.location
+");
+$locStmt->execute($locParams);
+$locations = $locStmt->fetchAll(PDO::FETCH_COLUMN);
 
 $deviceTypes = ['Switch','Router','Firewall','Access Point',
                 'Load Balancer','Patch Panel','Media Converter',
                 'Router SIM','Other'];
 $statuses    = ['Active','Inactive','In Repair','Retired','On Loan'];
 $sites       = $pdo->query("SELECT id, site_name FROM sites ORDER BY site_name")->fetchAll();
-
+$sites       = array_values(array_filter($sites, fn($s) => can_access_site((int)$s['id'])));
 
 /* ── Main query ──────────────────────────────────────────────── */
 $stmt = $pdo->prepare("

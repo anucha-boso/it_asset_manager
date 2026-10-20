@@ -10,7 +10,7 @@ require_once __DIR__ . '/../../config/auth.php';
 require_once __DIR__ . '/../../includes/module_access.php';
 require_role(['it_admin','it_staff']);
 require_module_access('MAINTENANCE');
-
+require_once __DIR__ . '/../../includes/site_scope.php';
 
 
 require_once __DIR__ . '/../../includes/csrf.php';
@@ -36,6 +36,17 @@ if ($isEdit) {
     $stmt->execute([':id'=>$id]);
     $existing = $stmt->fetch();
     if (!$existing) { http_response_code(404); exit('Log not found'); }
+    $siteStmt = $pdo->prepare("
+        SELECT COALESCE(h.site_id, mb.site_id, n.site_id)
+        FROM maintenance_logs m
+        LEFT JOIN hardware_assets h  ON h.id  = m.asset_id
+        LEFT JOIN mobile_assets   mb ON mb.id = m.mobile_id
+        LEFT JOIN network_assets  n  ON n.id  = m.network_id
+        WHERE m.id = :id
+    ");
+    $siteStmt->execute([':id' => $id]);
+    $logSite = $siteStmt->fetchColumn();
+    require_site_access(($logSite !== false && $logSite !== null) ? (int)$logSite : null);
     $row = array_merge($row, $existing);
 }
 
@@ -63,9 +74,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ตรวจว่า asset มีอยู่จริง
     if (!isset($errors['asset_id'])) {
-        $chk = $pdo->prepare("SELECT id FROM hardware_assets WHERE id = :id");
+        $chk = $pdo->prepare("SELECT id, site_id FROM hardware_assets WHERE id = :id");
         $chk->execute([':id' => (int)$row['asset_id']]);
-        if (!$chk->fetchColumn()) $errors['asset_id'] = 'ไม่พบ Asset นี้';
+        $chkRow = $chk->fetch();
+        if (!$chkRow) {
+            $errors['asset_id'] = 'ไม่พบ Asset นี้';
+        } elseif (!can_access_site($chkRow['site_id'] !== null ? (int)$chkRow['site_id'] : null)) {
+            $errors['asset_id'] = 'คุณไม่มีสิทธิ์ใช้ Asset ของ Site นี้';
+        }
     }
 
     if (!$errors) {
@@ -105,11 +121,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$assets = $pdo->query("
+$assetParams = [];
+$assetScope  = site_scope_sql('site_id', $assetParams, 'fa');
+$assetStmt = $pdo->prepare("
     SELECT id, asset_id, brand, model
     FROM hardware_assets
+    WHERE {$assetScope}
     ORDER BY asset_id
-")->fetchAll();
+");
+$assetStmt->execute($assetParams);
+$assets = $assetStmt->fetchAll();
 
 $page_title  = $isEdit ? 'Edit Maintenance Log' : 'Add Maintenance Log';
 $active_menu = 'maintenance';

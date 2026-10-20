@@ -5,8 +5,10 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../config/db_connect.php';
-require_once __DIR__ . '/../config/auth.php';
+require_once __DIR__ . '/../../config/db_connect.php';
+require_once __DIR__ . '/../../config/auth.php';
+require_once __DIR__ . '/../../includes/module_access.php';
+require_once __DIR__ . '/../../includes/csrf.php';
 require_role(['it_admin']);
 require_module_access('NETWORK');
 

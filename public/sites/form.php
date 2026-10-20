@@ -7,7 +7,7 @@ require_once __DIR__ . '/../../config/auth.php';
 require_once __DIR__ . '/../../includes/module_access.php';
 require_once __DIR__ . '/../../includes/csrf.php';
 
-require_role(['it_admin','it_staff']);
+require_role(['it_admin']); // add/edit Site => it_admin only (new Sites need grants set by admin)
 require_module_access('SITES');
 
 $pdo = db();

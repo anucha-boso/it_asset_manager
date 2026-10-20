@@ -18,6 +18,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../config/db_connect.php';
 require_once __DIR__ . '/../../config/auth.php';
 require_once __DIR__ . '/../../includes/module_access.php';
+require_once __DIR__ . '/../../includes/site_scope.php';
 require_role(['it_admin','it_staff']);
 require_module_access('MAINTENANCE');
 
@@ -53,6 +54,7 @@ $sched = $pdo->prepare("
              WHEN m.id IS NOT NULL THEN 'mobile'
              WHEN n.id IS NOT NULL THEN 'network' END AS source_type,
         s.site_name,
+        COALESCE(h.site_id, m.site_id, n.site_id)           AS asset_site_id,
         pt.id AS template_id, pt.name AS template_name
     FROM pm_schedules ps
     LEFT  JOIN hardware_assets h ON h.id = ps.asset_id
@@ -65,7 +67,7 @@ $sched = $pdo->prepare("
 $sched->execute([':id' => $schedId]);
 $schedule = $sched->fetch();
 if (!$schedule) { http_response_code(404); exit('Schedule not found'); }
-
+require_site_access($schedule['asset_site_id'] !== null ? (int)$schedule['asset_site_id'] : null);
 /* ── Load template items grouped by section ──────────────────── */
 $itemStmt = $pdo->prepare("
     SELECT id, section, item_text, is_critical, frequency, sort_order
@@ -237,7 +239,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$viewOnly) {
         } catch (PDOException $e) {
             $pdo->rollBack();
             error_log('[PM EXECUTE FAIL] ' . $e->getMessage());
-            $errors['_general'] = 'บันทึกไม่สำเร็จ: ' . $e->getMessage();
+           $errors['_general'] = 'บันทึกไม่สำเร็จ กรุณาลองใหม่หรือติดต่อผู้ดูแลระบบ';
         }
     }
 }

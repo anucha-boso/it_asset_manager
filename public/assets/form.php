@@ -11,16 +11,18 @@
  *   E  Peripherals     (Monitor×2, Mouse, KB, Adapter, Bag)
  *   F  สถานะ           (status, is_loanable, loan_pool_name, purchase_date, notes)
  */
-declare(strict_types=1);
+//declare(strict_types=1);
 require_once __DIR__ . '/../../config/db_connect.php';
 require_once __DIR__ . '/../../config/employee_db.php';
 require_once __DIR__ . '/../../config/auth.php';
+require_once __DIR__ . '/../../includes/site_scope.php';
 require_role(['it_admin','it_staff']);
 
 
 
 require_once __DIR__ . '/../../includes/csrf.php';
 require_once __DIR__ . '/../../includes/employee_log.php';
+require_once __DIR__ . '/../../includes/site_scope.php';
 $pdo = db();
 
 /* ── ID / mode ────────────────────────────────────────────────── */
@@ -79,6 +81,8 @@ if ($isEdit) {
     $existing = $stmt->fetch();
     if (!$existing) { http_response_code(404); exit('Asset not found'); }
     $row = array_merge($row, $existing);
+        // กัน IDOR: ไม่ใช่ admin → เปิด/บันทึกได้เฉพาะ asset ใน Site ที่ได้รับสิทธิ์ (site_id = NULL → เฉพาะ admin)
+    require_site_access($existing['site_id'] !== null ? (int)$existing['site_id'] : null);
     if ($row['assigned_employee_id'] !== null && $row['assigned_employee_id'] !== '') {
         $empId = (int)$row['assigned_employee_id'];
         $oldEmpId = $empId; // เก็บค่าเดิมไว้เทียบหลัง POST (ตัวแปร $empId จะถูก
@@ -102,6 +106,7 @@ if ($isEdit) {
 
 /* ── Reference data ───────────────────────────────────────────── */
 $sites = $pdo->query("SELECT id, site_name FROM sites ORDER BY site_name")->fetchAll();
+$sites = array_values(array_filter($sites, fn($s) => can_access_site((int)$s['id'])));
 
 $categories   = ['PC','Notebook','Surface','Server','NAS',
                   'Printer','Scanner','UPS','Handheld','Tablet',
@@ -145,10 +150,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ? (int)$row['assigned_employee_id'] : null;
 
     if ($empId !== null) {
+        /* บังคับ resign_status = 'Active' เฉพาะตอน "เปลี่ยนคน" (Assign/Transfer ใหม่)
+           ถ้าเป็นผู้ถือคนเดิมของ asset นี้ (โหมดแก้ไข และ id ตรงกับค่าในฐานข้อมูลก่อนบันทึก)
+           ให้ผ่านแม้ลาออกแล้ว — ไม่งั้นแก้ asset ที่คนลาออกยังถืออยู่ไม่ได้ (เช่นเปลี่ยน status,
+           location ก่อนรับคืน) $oldEmpId มาจาก DB ไม่ใช่ค่าจาก client จึงปลอมไม่ได้ */
+        $isSameHolder = $isEdit && $oldEmpId !== null && $empId === $oldEmpId;
+        $activeCond   = $isSameHolder ? '' : " AND resign_status = 'Active'";
         $empStmt = employee_db()->prepare("
             SELECT id, person_code, title, first_name, last_name
             FROM employees
-            WHERE id = :id AND resign_status = 'Active'
+            WHERE id = :id" . $activeCond . "
         ");
         $empStmt->execute([':id' => $empId]);
         $emp = $empStmt->fetch();
@@ -178,13 +189,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[$df] = 'รูปแบบวันที่ไม่ถูกต้อง';
     }
 
-    /* numeric */
+        /* numeric */
     if ($row['ram_gb'] !== '' && !ctype_digit($row['ram_gb']))
         $errors['ram_gb'] = 'ต้องเป็นตัวเลข';
 
     /* site FK */
     if ($row['site_id'] !== '' && !ctype_digit($row['site_id']))
         $errors['site_id'] = 'Site ไม่ถูกต้อง';
+
+    /* Site ต้องระบุ และต้องอยู่ในสิทธิ์ของผู้ใช้ (กัน tamper site_id + กันสร้างแถว NULL ใหม่) */
+    if ($row['site_id'] === '') {
+        $errors['site_id'] = 'กรุณาเลือก Site';
+    } elseif (!isset($errors['site_id']) && !can_access_site((int)$row['site_id'])) {
+        $errors['site_id'] = 'คุณไม่มีสิทธิ์ใช้ Site นี้';
+    }
 
     /* unique asset_id */
     if (!isset($errors['asset_id'])) {
@@ -354,7 +372,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (PDOException $e) {
             $pdo->rollBack();
             error_log('[ASSET SAVE FAIL] ' . $e->getMessage());
-            $errors['_general'] = 'บันทึกไม่สำเร็จ: ' . $e->getMessage();
+            $errors['_general'] = (($e->errorInfo[1] ?? 0) == 1062) ? 'บันทึกไม่สำเร็จ: ข้อมูลซ้ำกับรายการที่มีอยู่แล้ว (ตรวจ Asset ID / Serial)' : 'บันทึกไม่สำเร็จ กรุณาลองใหม่หรือติดต่อ IT Admin';            
         }
     }
 
@@ -448,13 +466,16 @@ require __DIR__ . '/../../includes/header.php';
             <div class="col-md-6">
                 <label class="form-label">Site</label>
                 <select name="site_id" class="form-select <?= isset($errors['site_id']) ? 'is-invalid' : '' ?>">
-                    <option value="">— ไม่ระบุ —</option>
+                    <option value="">— เลือก Site —</option>
                     <?php foreach ($sites as $s): ?>
                         <option value="<?= e($s['id']) ?>"
                             <?= (string)$row['site_id'] === (string)$s['id'] ? 'selected' : '' ?>>
                             <?= e($s['site_name']) ?>
                         </option>
                     <?php endforeach; ?>
+                                    <?php if (isset($errors['site_id'])): ?>
+                    <div class="invalid-feedback"><?= e($errors['site_id']) ?></div>
+                <?php endif; ?>
                 </select>
             </div>
 

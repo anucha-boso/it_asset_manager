@@ -14,6 +14,7 @@ require_role(['it_admin']);
 
 $pdo     = db();
 $modules = iam_module_list();
+$sites   = $pdo->query("SELECT id, site_name FROM sites ORDER BY site_name")->fetchAll();
 
 // ------ ค้นหา (filter ฝั่ง server ผ่าน GET) ------
 $searchQ = trim((string)($_GET['q'] ?? ''));
@@ -55,6 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify();
     $targetUserId    = isset($_POST['user_id']) && ctype_digit((string)$_POST['user_id']) ? (int)$_POST['user_id'] : 0;
     $selectedModules = $_POST['modules'] ?? [];
+    $selectedSites   = array_values(array_unique(array_map('intval', (array)($_POST['sites'] ?? []))));
 
     if ($targetUserId <= 0) {
         $errors['_general'] = 'กรุณาเลือก user';
@@ -79,6 +81,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ]);
                 }
             }
+                        /* สิทธิ์ตาม Site: ลบของเดิมแล้วใส่ใหม่ (กรองเฉพาะ site_id ที่มีอยู่จริง) */
+            $validSiteIds = array_values(array_intersect($selectedSites, array_map('intval', array_column($sites, 'id'))));
+            $pdo->prepare("DELETE FROM user_site_access WHERE auth_user_id = :uid")
+                ->execute([':uid' => $targetUserId]);
+            if ($validSiteIds) {
+                $insSite = $pdo->prepare("
+                    INSERT INTO user_site_access (auth_user_id, site_id, granted_by_ad)
+                    VALUES (:uid, :sid, :by)
+                ");
+                foreach ($validSiteIds as $sid) {
+                    $insSite->execute([
+                        ':uid' => $targetUserId,
+                        ':sid' => $sid,
+                        ':by'  => $_SESSION['iam_username'] ?? null,
+                    ]);
+                }
+            }
+
             $pdo->commit();
             $_SESSION['flash'] = ['type' => 'success', 'message' => 'บันทึกสิทธิ์เรียบร้อยแล้ว'];
             $redirectQ = $searchQ !== '' ? '&q=' . urlencode($searchQ) : '';
@@ -93,10 +113,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $grantedModules = [];
+$grantedSites = [];
 if ($selectedUserId > 0) {
     $stmt2 = $pdo->prepare("SELECT module_code FROM user_module_access WHERE auth_user_id = :uid");
     $stmt2->execute([':uid' => $selectedUserId]);
     $grantedModules = array_column($stmt2->fetchAll(), 'module_code');
+    $stmt3 = $pdo->prepare("SELECT site_id FROM user_site_access WHERE auth_user_id = :uid");
+    $stmt3->execute([':uid' => $selectedUserId]);
+    $grantedSites = array_map('intval', array_column($stmt3->fetchAll(), 'site_id'));
 }
 
 $flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
@@ -197,6 +221,18 @@ require __DIR__ . '/../../includes/header.php';
                                        <?= in_array($code, $grantedModules, true) ? 'checked' : '' ?>>
                                 <label class="form-check-label" for="mod_<?= e($code) ?>">
                                     <?= e($m['label']) ?>
+                                </label>
+                            </div>
+                        <?php endforeach; ?>
+                      <hr class="my-4">
+                        <div class="fw-semibold mb-2">สิทธิ์ตาม Site <span class="text-muted small fw-normal">(เลือกแล้วเห็นข้อมูลเฉพาะ Site นั้น · ไม่เลือกเลย = ไม่เห็นข้อมูล)</span></div>
+                        <?php foreach ($sites as $s): ?>
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" name="sites[]"
+                                       value="<?= e($s['id']) ?>" id="site_<?= e($s['id']) ?>"
+                                       <?= in_array((int)$s['id'], $grantedSites, true) ? 'checked' : '' ?>>
+                                <label class="form-check-label" for="site_<?= e($s['id']) ?>">
+                                    <?= e($s['site_name']) ?>
                                 </label>
                             </div>
                         <?php endforeach; ?>

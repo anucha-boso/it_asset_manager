@@ -1,5 +1,4 @@
 <?php
-ini_set("display_errors",1);error_reporting(E_ALL);
 /**
  * =============================================================================
  *  Maintenance Logs — list
@@ -13,7 +12,7 @@ require_once __DIR__ . '/../../config/auth.php';
 require_once __DIR__ . '/../../includes/module_access.php';
 require_role(['it_admin','it_staff','it_viewer','it_borrower']);
 require_module_access('MAINTENANCE');
-
+require_once __DIR__ . '/../../includes/site_scope.php';
 
 
 require_once __DIR__ . '/../../includes/csrf.php';
@@ -25,6 +24,7 @@ $due    = trim((string)($_GET['due']  ?? ''));   // ''|overdue|soon
 
 $where  = [];
 $params = [];
+$where[] = site_scope_sql('s.id', $params, 'ms');
 
 if ($search !== '') {
     $where[] = '(h.asset_id LIKE :q1 OR h.brand LIKE :q2 OR h.model LIKE :q3 OR m.description LIKE :q4 OR m.performed_by LIKE :q5)';

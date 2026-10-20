@@ -22,6 +22,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../config/db_connect.php';
+require_once __DIR__ . '/../../config/auth.php';
+require_role(['it_admin']); // bulk import writes across all Sites => it_admin only
 require_once __DIR__ . '/../../includes/csrf.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 

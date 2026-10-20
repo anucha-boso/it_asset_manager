@@ -3,13 +3,22 @@
  * Loan Print — ใบยืมอุปกรณ์ IT (print-friendly)
  * /var/www/lab/it-asset-manager/public/loans/print.php?id=N
  */
-declare(strict_types=1);
+
 require_once __DIR__ . '/../../config/db_connect.php';
 require_once __DIR__ . '/../../config/auth.php';
 require_once __DIR__ . '/../../includes/module_access.php';
 require_role(['it_admin','it_staff','it_viewer','it_borrower']);
 require_module_access('LOANS');
-
+require_once __DIR__ . '/../../config/employee_db.php';
+require_once __DIR__ . '/../../includes/site_scope.php';
+require_once __DIR__ . '/../../includes/require_employee_link.php';
+/* หน้าพิมพ์ไม่โหลด header.php (กัน layout ปนมาในใบยืม) แต่ e() ถูก define ใน header.php
+   เท่านั้น จึง define เองที่นี่ */
+if (!function_exists('e')) {
+    function e($v): string {
+        return htmlspecialchars((string)($v ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    }
+}
 
 
 $pdo = db();
@@ -39,10 +48,31 @@ $loan = $pdo->prepare("
 $loan->execute([':id' => $id]);
 $loan = $loan->fetch();
 if (!$loan) { http_response_code(404); exit('Loan not found'); }
-/* borrower ดูได้เฉพาะ loan ของตัวเองเท่านั้น */
-if (is_borrower_only() && $loan['borrower_ad'] !== iam_user()['username']) {
-    http_response_code(403);
-    exit('ไม่มีสิทธิ์ดูรายการนี้');
+/* สิทธิ์ดู: borrower เห็นเฉพาะ loan ของตัวเอง (เทียบ borrower_employee_id เหมือน loans/index.php)
+   admin/staff/viewer ต้องมี Site grant ของอุปกรณ์ หรือของผู้ยืม อย่างใดอย่างหนึ่ง */
+$accChk = $pdo->prepare("
+    SELECT l.borrower_employee_id,
+           l.borrower_site_id AS borrower_site,
+           COALESCE(h.site_id, m.site_id, n.site_id) AS asset_site
+    FROM asset_loans l
+    LEFT JOIN hardware_assets h ON h.id = l.asset_id
+    LEFT JOIN mobile_assets   m ON m.id = l.mobile_id
+    LEFT JOIN network_assets  n ON n.id = l.network_asset_id
+    WHERE l.id = :id
+");
+$accChk->execute([':id' => $id]);
+$accRow = $accChk->fetch();
+if (is_borrower_only()) {
+    if ((int)($accRow['borrower_employee_id'] ?? 0) !== (int)require_employee_link()) {
+        http_response_code(403);
+        exit('ไม่มีสิทธิ์ดูรายการนี้');
+    }
+} else {
+    $assetSite  = $accRow['asset_site']    !== null ? (int)$accRow['asset_site']    : null;
+    $borrowSite = $accRow['borrower_site'] !== null ? (int)$accRow['borrower_site'] : null;
+    if (!can_access_site($assetSite) && !can_access_site($borrowSite)) {
+        require_site_access($assetSite);   // ไม่ผ่าน -> แสดงหน้า 403 และ exit
+    }
 }
 
 /* Peripherals */

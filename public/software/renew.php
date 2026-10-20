@@ -19,7 +19,7 @@ require_once __DIR__ . '/../../config/auth.php';
 require_once __DIR__ . '/../../includes/module_access.php';
 require_role(['it_admin','it_staff']);
 require_module_access('SOFTWARE');
-
+require_once __DIR__ . '/../../includes/site_scope.php';
 
 require_once __DIR__ . '/../../includes/csrf.php';
 $pdo = db();
@@ -32,6 +32,7 @@ $licStmt = $pdo->prepare("SELECT * FROM software_licenses WHERE id = :id");
 $licStmt->execute([':id' => $swId]);
 $license = $licStmt->fetch();
 if (!$license) { http_response_code(404); exit('License not found'); }
+require_site_access($license['site_id'] !== null ? (int)$license['site_id'] : null);
 
 $errors = [];
 
@@ -95,7 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (PDOException $e) {
             $pdo->rollBack();
             error_log('[RENEWAL SAVE FAIL] ' . $e->getMessage());
-            $errors['_general'] = 'บันทึกไม่สำเร็จ: ' . $e->getMessage();
+                        $errors['_general'] = 'บันทึกไม่สำเร็จ กรุณาลองใหม่หรือติดต่อ IT Admin';
         }
     }
 }

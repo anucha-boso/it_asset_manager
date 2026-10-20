@@ -13,17 +13,23 @@ require_once __DIR__ . '/../../includes/module_access.php';
 require_role(['it_admin','it_staff','it_viewer','it_borrower']);
 require_module_access('SITES');
 
-
-
 require_once __DIR__ . '/../../includes/csrf.php';
+require_once __DIR__ . '/../../includes/site_scope.php';
+
 $pdo = db();
 
-$sites = $pdo->query("
+// Site scope: it_admin => 1=1, no grant => 1=0, otherwise s.id IN (granted ids)
+$siteParams = [];
+$siteWhere  = site_scope_sql('s.id', $siteParams, 'st');
+$stmt = $pdo->prepare("
     SELECT s.*,
            (SELECT COUNT(*) FROM hardware_assets h WHERE h.site_id = s.id) AS asset_count
     FROM sites s
+    WHERE {$siteWhere}
     ORDER BY s.site_name
-")->fetchAll();
+");
+$stmt->execute($siteParams);
+$sites = $stmt->fetchAll();
 
 $flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
 $page_title = 'Sites';

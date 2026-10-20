@@ -25,7 +25,9 @@ require_once __DIR__ . '/../../config/db_connect.php';
 require_once __DIR__ . '/../../config/employee_db.php';
 require_once __DIR__ . '/../../config/auth.php';
 require_role(['it_admin','it_staff']);
-
+require_once __DIR__ . '/../../includes/module_access.php';
+require_once __DIR__ . '/../../includes/site_scope.php';
+require_module_access('SOFTWARE');
 
 
 require_once __DIR__ . '/../../includes/csrf.php';
@@ -40,6 +42,7 @@ $licStmt = $pdo->prepare("SELECT * FROM software_licenses WHERE id = :id");
 $licStmt->execute([':id' => $swId]);
 $license = $licStmt->fetch();
 if (!$license) { http_response_code(404); exit('License not found'); }
+require_site_access($license['site_id'] !== null ? (int)$license['site_id'] : null);
 
 $errors = [];
 
@@ -99,13 +102,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         //       ตอนนี้เปลี่ยนเป็นช่องค้นหาอิสระ ต้องยืนยันฝั่งเซิร์ฟเวอร์เอง) -----
         if (!$errors && $assetId !== null) {
             $assetStmt = $pdo->prepare("
-                SELECT id, asset_id, brand, model
+                SELECT id, asset_id, brand, model, site_id
                 FROM hardware_assets
                 WHERE id = :id AND status IN ('Active','In Stock')
             ");
             $assetStmt->execute([':id' => $assetId]);
-            if (!$assetStmt->fetch()) {
+            $assetRow = $assetStmt->fetch();
+            if (!$assetRow) {
                 $errors['add'] = 'ไม่พบ Asset ที่เลือก หรือสถานะไม่ใช่ Active/In Stock กรุณาค้นหาใหม่';
+            }
+            if (!$errors && !can_access_site($assetRow['site_id'] !== null ? (int)$assetRow['site_id'] : null)) {
+                $errors['add'] = 'คุณไม่มีสิทธิ์ใช้ Asset ของ Site นี้';
             }
         }
 
@@ -204,14 +211,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $userAd     = null;
         $empDisplay = null;
-
+                // พนักงานคนเดิมที่ถืออยู่ใน DB (ไม่เชื่อ client) → อนุญาตให้แก้ไข record ได้แม้ลาออกแล้ว
+        $oldHolderId = $editRow['assigned_employee_id'] !== null ? (int)$editRow['assigned_employee_id'] : null;
+        $sameHolder  = ($empId !== null && $empId === $oldHolderId);
+        $activeCond  = $sameHolder ? '' : " AND resign_status = 'Active'";
         // ----- ตรวจสอบเหมือน 'add' ทุกจุด (ยืนยัน employee/asset จาก DB เสมอ) -----
         if ($empId !== null) {
             $empStmt = employee_db()->prepare("
                 SELECT id, person_code, title, first_name, last_name
                 FROM employees
-                WHERE id = :id AND resign_status = 'Active'
+                WHERE id = :id" . $activeCond . "
             ");
+
             $empStmt->execute([':id' => $empId]);
             $emp = $empStmt->fetch();
             if (!$emp) {
@@ -226,13 +237,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (!$errors && $assetId !== null) {
             $assetStmt = $pdo->prepare("
-                SELECT id, asset_id, brand, model
+                SELECT id, asset_id, brand, model, site_id                
                 FROM hardware_assets
                 WHERE id = :id AND status IN ('Active','In Stock')
             ");
             $assetStmt->execute([':id' => $assetId]);
-            if (!$assetStmt->fetch()) {
+                        $assetRow = $assetStmt->fetch();
+            if (!$assetRow) {
                 $errors['edit'] = 'ไม่พบ Asset ที่เลือก หรือสถานะไม่ใช่ Active/In Stock กรุณาค้นหาใหม่';
+            }
+                        if (!$errors && !can_access_site($assetRow['site_id'] !== null ? (int)$assetRow['site_id'] : null)) {
+                $errors['edit'] = 'คุณไม่มีสิทธิ์ใช้ Asset ของ Site นี้';
             }
         }
 

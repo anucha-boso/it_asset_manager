@@ -8,6 +8,7 @@ require_once __DIR__ . '/../../config/db_connect.php';
 require_once __DIR__ . '/../../config/auth.php';
 require_once __DIR__ . '/../../includes/csrf.php';
 require_once __DIR__ . '/../../includes/module_access.php';
+require_once __DIR__ . '/../../includes/site_scope.php';
 
 require_role(['it_admin', 'it_staff', 'it_viewer', 'it_borrower']);
 require_module_access('MOBILE');
@@ -30,6 +31,7 @@ $offset  = ($page - 1) * $perPage;
 /* ── WHERE ───────────────────────────────────────────────────── */
 $where  = [];
 $params = [];
+$where[] = site_scope_sql('m.site_id', $params);  
 
 if ($search !== '') {
     $where[] = '(m.asset_id      LIKE :q1
@@ -114,6 +116,8 @@ $mobiles = $stmt->fetchAll();
 
 /* ── Dropdowns ───────────────────────────────────────────────── */
 $sites       = $pdo->query("SELECT id, site_name FROM sites ORDER BY site_name")->fetchAll();
+$sites       = $pdo->query("SELECT id, site_name FROM sites ORDER BY site_name")->fetchAll();   // ← บรรทัด 116 เดิม คงไว้
+$sites       = array_values(array_filter($sites, fn($s) => can_access_site((int)$s['id'])));    // ← เพิ่มใหม่
 $deviceTypes = ['Smartphone','Handheld','Tablet','Barcode Reader','Barcode Scanner','Rugged PDA','Feature Phone','Other'];
 $departments = ['IT','HR','MK','WH','CS','EN','AC','PLP','QA','PC','ส่วนกลาง'];
 $statuses    = ['Active','In Repair','In Stock','Retired','On Loan','ชำรุด','คืนแล้ว','สูญหาย','รอ Reset'];

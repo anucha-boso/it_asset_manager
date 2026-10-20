@@ -1,5 +1,4 @@
 <?php
-ini_set("display_errors",1);error_reporting(E_ALL);
 /**
  * Mobile Asset — Add / Edit
  * /var/www/lab/it-asset-manager/public/assets/mobile_form.php
@@ -23,6 +22,7 @@ require_role(['it_admin','it_staff']);
 
 require_once __DIR__ . '/../../includes/csrf.php';
 require_once __DIR__ . '/../../includes/employee_log.php';
+require_once __DIR__ . '/../../includes/site_scope.php';
 $pdo = db();
 
 $id     = isset($_GET['id']) && ctype_digit((string)$_GET['id']) ? (int)$_GET['id'] : 0;
@@ -73,6 +73,7 @@ if ($isEdit) {
     $existing = $stmt->fetch();
     if (!$existing) { http_response_code(404); exit('Mobile asset not found'); }
     $row = array_merge($row, $existing);
+        require_site_access($existing['site_id'] !== null ? (int)$existing['site_id'] : null);
     if ($row['assigned_employee_id'] !== null && $row['assigned_employee_id'] !== '') {
         $empId = (int)$row['assigned_employee_id'];
         $oldEmpId = $empId;
@@ -80,6 +81,7 @@ if ($isEdit) {
 }
 
 $sites       = $pdo->query("SELECT id, site_name FROM sites ORDER BY site_name")->fetchAll();
+$sites       = array_values(array_filter($sites, fn($s) => can_access_site((int)$s['id'])));
 $deviceTypes = ['Smartphone','Handheld','Tablet','Barcode Reader','Barcode Scanner','Rugged PDA','Feature Phone','Other'];
 $departments = ['IT','HR','MK','WH','CS','EN','AC','PLP','QA','PC','ส่วนกลาง'];
 $companies   = ['PCS','JPK','JPAC','PACS','ส่วนกลาง'];
@@ -105,12 +107,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $empId = ctype_digit((string)$row['assigned_employee_id']) && $row['assigned_employee_id'] !== ''
         ? (int)$row['assigned_employee_id'] : null;
 
+    // คนเดิมที่ถือใน DB → แก้ record ได้แม้ลาออกแล้ว (ถ้าเปลี่ยนคนยังต้อง Active)
+    $activeCond = ($isEdit && $oldEmpId !== null && $empId === $oldEmpId) ? '' : " AND resign_status = 'Active'";
+
     if ($empId !== null) {
         $empStmt = employee_db()->prepare("
             SELECT id, person_code, title, first_name, last_name
             FROM employees
-            WHERE id = :id AND resign_status = 'Active'
-        ");
+            WHERE id = :id" . $activeCond . "");
         $empStmt->execute([':id' => $empId]);
         $emp = $empStmt->fetch();
         if (!$emp) {
@@ -129,7 +133,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors['status'] = 'Status ไม่ถูกต้อง';
     if ($row['register_date'] !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $row['register_date']))
         $errors['register_date'] = 'รูปแบบวันที่ไม่ถูกต้อง';
-
+    /* Site: บังคับเลือก + ต้องเป็น Site ที่ผู้ใช้มีสิทธิ์ (กันแก้ค่าใน DevTools) */
+    if (!ctype_digit((string)$row['site_id']) || (int)$row['site_id'] <= 0) {
+        $errors['site_id'] = 'กรุณาเลือก Site';
+    } elseif (!can_access_site((int)$row['site_id'])) {
+        $errors['site_id'] = 'คุณไม่มีสิทธิ์ใช้ Site นี้';
+    }
     /* unique asset_id */
     if (!isset($errors['asset_id'])) {
         $uq = $pdo->prepare(
@@ -220,7 +229,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         } catch (PDOException $e) {
             error_log('[MOBILE SAVE] ' . $e->getMessage());
-            $errors['_general'] = 'บันทึกไม่สำเร็จ: ' . $e->getMessage();
+           $errors['_general'] = (($e->errorInfo[1] ?? 0) == 1062) ? 'บันทึกไม่สำเร็จ: ข้อมูลซ้ำกับรายการที่มีอยู่แล้ว (ตรวจ Asset ID / Serial)' : 'บันทึกไม่สำเร็จ กรุณาลองใหม่หรือติดต่อ IT Admin';           
         }
     }
 }
@@ -289,13 +298,14 @@ require __DIR__ . '/../../includes/header.php';
             </div>
             <div class="col-md-4">
                 <label class="form-label">Site</label>
-                <select name="site_id" class="form-select">
-                    <option value="">— ไม่ระบุ —</option>
+                  <select name="site_id" class="form-select <?= isset($errors['site_id']) ? 'is-invalid' : '' ?>">
+                    <option value="">— เลือก Site —</option>
                     <?php foreach ($sites as $s): ?>
                         <option value="<?= e($s['id']) ?>" <?= (string)$row['site_id']===(string)$s['id']?'selected':'' ?>>
                             <?= e($s['site_name']) ?>
                         </option>
                     <?php endforeach; ?>
+                    <?php if (isset($errors['site_id'])): ?><div class="invalid-feedback"><?= e($errors['site_id']) ?></div><?php endif; ?>
                 </select>
             </div>
             <div class="col-md-4">

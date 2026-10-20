@@ -12,6 +12,19 @@ require_once __DIR__ . '/../../config/auth.php';
 require_once __DIR__ . '/../../includes/module_access.php';
 require_role(['it_admin','it_staff','it_viewer','it_borrower']);
 require_module_access('LOANS');
+require_once __DIR__ . '/../../includes/site_scope.php';
+
+/* เห็น loan ถ้า Site ของอุปกรณ์ (h/m/n) หรือ Site ผู้ยืมอยู่ใน grant
+   query ที่เรียกต้อง JOIN alias h, m, n และใช้ alias l สำหรับ asset_loans */
+function loan_scope_sql(array &$params, string $px): string
+{
+    return '(' . implode(' OR ', [
+        site_scope_sql('h.site_id',          $params, $px . 'h'),
+        site_scope_sql('m.site_id',          $params, $px . 'm'),
+        site_scope_sql('n.site_id',          $params, $px . 'n'),
+        site_scope_sql('l.borrower_site_id', $params, $px . 'b'),
+    ]) . ')';
+}
 
 $pdo  = db();
 $user = iam_user();
@@ -44,6 +57,9 @@ $search = trim((string)($_GET['q'] ?? ''));
 
 $where  = [];
 $params = [];
+if (!$isBorrowerOnly) {
+    $where[] = loan_scope_sql($params, 'ls');   // Site scope (admin => 1=1)
+}
 
 /* it_borrower เห็นเฉพาะ loan ของตัวเอง — กรองด้วย borrower_employee_id
    ไม่ใช่ borrower_ad เพราะ loans/form.php เซฟ borrower_ad จาก employees.person_code
@@ -67,50 +83,66 @@ if ($isBorrowerOnly) {
 if ($search !== '') {
     $where[]       = "(l.loan_code LIKE :q1 OR l.borrower_name LIKE :q2
                     OR l.borrower_ad LIKE :q3 OR h.asset_id LIKE :q4
-                    OR m.asset_id LIKE :q5)";
+                    OR m.asset_id LIKE :q5 OR n.asset_id LIKE :q6)";
     $qLike = '%' . $search . '%';
     $params[':q1'] = $qLike;
     $params[':q2'] = $qLike;
     $params[':q3'] = $qLike;
     $params[':q4'] = $qLike;
     $params[':q5'] = $qLike;
+    $params[':q6'] = $qLike;
 }
 $whereSql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
 
 /* ── KPI (เฉพาะ admin/staff/viewer) ─────────────────────────── */
 $kpi = ['active'=>0,'overdue'=>0,'pending'=>0,'returned_month'=>0];
 if (!$isBorrowerOnly) {
-    $kpi = $pdo->query("
+        $pK  = [];
+    $stK = $pdo->prepare("
         SELECT
-            SUM(status IN ('OnLoan','Overdue'))        AS active,
-            SUM(status = 'Overdue')                    AS overdue,
-            SUM(status = 'Pending')                    AS pending,
-            SUM(status = 'Returned'
-                AND MONTH(actual_return) = MONTH(CURRENT_DATE)
-                AND YEAR(actual_return)  = YEAR(CURRENT_DATE)) AS returned_month
-        FROM asset_loans
-    ")->fetch();
+            SUM(l.status IN ('OnLoan','Overdue'))        AS active,
+            SUM(l.status = 'Overdue')                    AS overdue,
+            SUM(l.status = 'Pending')                    AS pending,
+            SUM(l.status = 'Returned'
+                AND MONTH(l.actual_return) = MONTH(CURRENT_DATE)
+                AND YEAR(l.actual_return)  = YEAR(CURRENT_DATE)) AS returned_month
+        FROM asset_loans l
+        LEFT JOIN hardware_assets h ON h.id = l.asset_id
+        LEFT JOIN mobile_assets   m ON m.id = l.mobile_id
+        LEFT JOIN network_assets  n ON n.id = l.network_asset_id
+        WHERE " . loan_scope_sql($pK, 'lk') . "
+    ");
+    $stK->execute($pK);
+    $kpi = $stK->fetch();
 }
 
 /* ── Loanable pool (เฉพาะ admin/staff/viewer) ───────────────── */
 $loanableHW  = 0;
 $loanableMob = 0;
 if (!$isBorrowerOnly) {
-    $loanableHW = (int)$pdo->query("
+        $pHW  = [];
+    $stHW = $pdo->prepare("
         SELECT COUNT(*) FROM hardware_assets
         WHERE is_loanable = 1 AND status IN ('Active','In Stock')
+          AND " . site_scope_sql('site_id', $pHW, 'phw') . "
           AND id NOT IN (SELECT asset_id FROM asset_loans
                          WHERE status IN ('OnLoan','Approved','Overdue')
                            AND asset_id IS NOT NULL)
-    ")->fetchColumn();
+    ");
+    $stHW->execute($pHW);
+    $loanableHW = (int)$stHW->fetchColumn();
 
-    $loanableMob = (int)$pdo->query("
+    $pMob  = [];
+    $stMob = $pdo->prepare("
         SELECT COUNT(*) FROM mobile_assets
         WHERE is_loanable = 1 AND status IN ('Active','In Stock')
+          AND " . site_scope_sql('site_id', $pMob, 'pmob') . "
           AND id NOT IN (SELECT mobile_id FROM asset_loans
                          WHERE status IN ('OnLoan','Approved','Overdue')
                            AND mobile_id IS NOT NULL)
-    ")->fetchColumn();
+    ");
+    $stMob->execute($pMob);
+    $loanableMob = (int)$stMob->fetchColumn();
 }
 
 /* ── Main query ──────────────────────────────────────────────── */
@@ -122,11 +154,14 @@ $loans = $pdo->prepare("
         h.category   AS hw_category,
         m.asset_id   AS mob_code, m.brand AS mob_brand, m.model AS mob_model,
         m.device_type,
+        n.asset_id   AS net_code, n.brand AS net_brand, n.model AS net_model,
+        n.device_type AS net_device_type,
         s.site_name  AS borrower_site,
         (SELECT COUNT(*) FROM loan_extensions e WHERE e.loan_id = l.id) AS ext_count
     FROM asset_loans l
     LEFT JOIN hardware_assets h ON h.id = l.asset_id
     LEFT JOIN mobile_assets   m ON m.id = l.mobile_id
+    LEFT JOIN network_assets  n ON n.id = l.network_asset_id
     LEFT JOIN sites           s ON s.id = l.borrower_site_id
     {$whereSql}
     ORDER BY
@@ -335,7 +370,9 @@ require __DIR__ . '/../../includes/header.php';
                 }
                 $assetCode = $l['hw_code']
                     ? ($l['hw_code'] . ' · ' . $l['hw_brand'] . ' ' . $l['hw_model'])
-                    : ($l['mob_code'] . ' · ' . $l['mob_brand'] . ' ' . $l['mob_model']);
+                    : ($l['mob_code']
+                        ? ($l['mob_code'] . ' · ' . $l['mob_brand'] . ' ' . $l['mob_model'])
+                        : ($l['net_code'] . ' · ' . $l['net_brand'] . ' ' . $l['net_model']));
             ?>
                 <tr class="<?= $l['status']==='Overdue' ? 'table-danger' : '' ?>">
                     <td>
@@ -353,7 +390,7 @@ require __DIR__ . '/../../includes/header.php';
                     <td class="small">
                         <div><?= e($assetCode) ?></div>
                         <span class="text-muted">
-                            <?= e($l['hw_category'] ?: $l['device_type'] ?: '') ?>
+                             <?= e($l['hw_category'] ?: $l['device_type'] ?: $l['net_device_type'] ?: '') ?>
                         </span>
                     </td>
                     <?php if (!$isBorrowerOnly): ?>
