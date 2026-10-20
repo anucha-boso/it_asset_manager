@@ -10,6 +10,7 @@ require_once __DIR__ . '/../../config/auth.php';
 require_once __DIR__ . '/../../includes/module_access.php';
 require_role(['it_admin','it_staff']);
 require_module_access('SOFTWARE');
+require_once __DIR__ . '/../../includes/site_scope.php';
 
 require_once __DIR__ . '/../../includes/csrf.php';
 $pdo = db();
@@ -39,6 +40,7 @@ if ($isEdit) {
     $stmt->execute([':id' => $id]);
     $existing = $stmt->fetch();
     if (!$existing) { http_response_code(404); exit('License not found'); }
+        require_site_access($existing['site_id'] !== null ? (int)$existing['site_id'] : null);
     $row = array_merge($row, $existing);
 }
 
@@ -95,6 +97,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $bind['cost']                  = $bind['cost'] !== '' ? (float)$bind['cost'] : null;
         $bind['renewal_reminder_days'] = $bind['renewal_reminder_days'] !== '' ? (int)$bind['renewal_reminder_days'] : 30;
         $bind['site_id'] = $bind['site_id'] !== '' ? (int)$bind['site_id'] : null;
+            if (!site_scope_unrestricted() && ($bind['site_id'] === null || !can_access_site($bind['site_id']))) {
+            http_response_code(403);
+            exit('ไม่มีสิทธิ์ใช้ Site นี้');
+        }
 
         try {
             if ($isEdit) {
@@ -153,7 +159,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         } catch (PDOException $e) {
             error_log('[SW SAVE FAIL] ' . $e->getMessage());
-            $errors['_general'] = 'บันทึกไม่สำเร็จ: ' . $e->getMessage();
+             $errors['_general'] = 'บันทึกไม่สำเร็จ กรุณาลองใหม่หรือติดต่อผู้ดูแลระบบ';
         }
     }
 }
@@ -261,8 +267,11 @@ require __DIR__ . '/../../includes/header.php';
                     <div class="mb-3">
                         <label class="form-label">Site</label>
                         <select name="site_id" class="form-select">
+                            <?php if (site_scope_unrestricted()): ?>
                             <option value="">— ส่วนกลาง / ไม่ระบุ —</option>
+                            <?php endif; ?>
                             <?php foreach ($sites as $s): ?>
+                                 <?php if (!can_access_site((int)$s['id'])) continue; ?>
                                 <option value="<?= e($s['id']) ?>"
                                     <?= (string)$row['site_id'] === (string)$s['id'] ? 'selected' : '' ?>>
                                     <?= e($s['site_name']) ?>

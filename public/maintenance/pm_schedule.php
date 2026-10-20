@@ -23,6 +23,7 @@ require_once __DIR__ . '/../../config/db_connect.php';
 require_once __DIR__ . '/../../config/auth.php';
 require_once __DIR__ . '/../../includes/module_access.php';
 require_role(['it_admin','it_staff','it_viewer']);
+require_once __DIR__ . '/../../includes/site_scope.php';
 require_module_access('MAINTENANCE');
 
 require_once __DIR__ . '/../../includes/csrf.php';
@@ -173,7 +174,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $hwStmt->execute(array_merge($genCats, $genSites));
         $processGroup(array_map(
             fn($a) => ['pk' => (int)$a['id'], 'site_id' => (int)$a['site_id'], 'category' => $a['category']],
-            $hwStmt->fetchAll()
+                    array_filter($hwStmt->fetchAll(), fn($a) => can_access_site($a['site_id'] !== null ? (int)$a['site_id'] : null))
         ), 'asset_id');
 
         /* --- 2) Mobile assets (ข้ามถ้าครบโควตาจาก hardware ไปแล้ว) --- */
@@ -184,7 +185,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $mobStmt->execute(array_merge($genCats, $genSites));
             $processGroup(array_map(
                 fn($a) => ['pk' => (int)$a['id'], 'site_id' => (int)$a['site_id'], 'category' => $a['category']],
-                $mobStmt->fetchAll()
+                array_filter($mobStmt->fetchAll(), fn($a) => can_access_site($a['site_id'] !== null ? (int)$a['site_id'] : null))
             ), 'mobile_id');
         }
 
@@ -196,7 +197,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $netStmt->execute(array_merge($genCats, $genSites));
             $processGroup(array_map(
                 fn($a) => ['pk' => (int)$a['id'], 'site_id' => (int)$a['site_id'], 'category' => $a['category']],
-                $netStmt->fetchAll()
+                array_filter($netStmt->fetchAll(), fn($a) => can_access_site($a['site_id'] !== null ? (int)$a['site_id'] : null))
             ), 'network_id');
         }
 
@@ -243,7 +244,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     LEFT JOIN network_assets  n ON n.id = ps.network_id';
 
         if ($resetQtr) { $where[] = 'ps.quarter = :qtr'; $params[':qtr'] = $resetQtr; }
-
+            $where[] = pm_scope_sql($params, 'rs');
         if ($resetCats) {
             $ph = [];
             foreach ($resetCats as $i => $c) {
@@ -337,6 +338,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Location: /it-asset-manager/maintenance/pm_schedule.php');
             exit;
         }
+        require_pm_schedule_access($pdo, $schedId);
 
         $chk = $pdo->prepare("SELECT status FROM pm_schedules WHERE id = :id");
         $chk->execute([':id' => $schedId]);
@@ -369,14 +371,19 @@ $filterStatus = in_array($_GET['status'] ?? '', ['Planned','InProgress','Done','
     ? $_GET['status'] : '';
 
 /* ── Summary cards ───────────────────────────────────────────── */
-$summary = $pdo->prepare("
-    SELECT status, COUNT(*) AS cnt
-    FROM pm_schedules
-    WHERE year = :year " . ($filterQtr ? "AND quarter = :qtr" : "") . "
-    GROUP BY status
-");
 $bindSum = [':year' => $filterYear];
 if ($filterQtr) $bindSum[':qtr'] = $filterQtr;
+$sumScope = pm_scope_sql($bindSum, 'su');
+$summary = $pdo->prepare("
+    SELECT ps.status, COUNT(*) AS cnt
+    FROM pm_schedules ps
+    LEFT JOIN hardware_assets h ON h.id = ps.asset_id
+    LEFT JOIN mobile_assets   m ON m.id = ps.mobile_id
+    LEFT JOIN network_assets  n ON n.id = ps.network_id
+    WHERE ps.year = :year " . ($filterQtr ? "AND ps.quarter = :qtr" : "") . "
+      AND {$sumScope}
+    GROUP BY ps.status
+");
 $summary->execute($bindSum);
 $summaryMap = ['Planned'=>0,'InProgress'=>0,'Done'=>0,'Skipped'=>0];
 foreach ($summary->fetchAll() as $r) $summaryMap[$r['status']] = (int)$r['cnt'];
@@ -389,10 +396,17 @@ $where  = ['ps.year = :year'];
 $params = [':year' => $filterYear];
 if ($filterQtr) { $where[] = 'ps.quarter = :qtr'; $params[':qtr'] = $filterQtr; }
 if ($filterStatus) { $where[] = 'ps.status = :status'; $params[':status'] = $filterStatus; }
+$where[] = pm_scope_sql($params, 'ls');
 $whereListSql = implode(' AND ', $where);
 
 $perPage = 10;
-$countStmt = $pdo->prepare("SELECT COUNT(*) FROM pm_schedules ps WHERE {$whereListSql}");
+$countStmt = $pdo->prepare("
+    SELECT COUNT(*) FROM pm_schedules ps
+    LEFT JOIN hardware_assets h ON h.id = ps.asset_id
+    LEFT JOIN mobile_assets   m ON m.id = ps.mobile_id
+    LEFT JOIN network_assets  n ON n.id = ps.network_id
+    WHERE {$whereListSql}
+");
 $countStmt->execute($params);
 $totalRows  = (int)$countStmt->fetchColumn();
 $totalPages = max(1, (int)ceil($totalRows / $perPage));
@@ -447,6 +461,7 @@ $allCategories = $pdo->query("
 
 /* ── Sites สำหรับ generate filter (ใหม่) ────────────────────────── */
 $allSites = $pdo->query("SELECT id, site_name FROM sites ORDER BY site_name")->fetchAll();
+$allSites = array_values(array_filter($allSites, fn($s) => can_access_site((int)$s['id'])));
 
 $page_title  = 'PM Schedule';
 $active_menu = 'maintenance';

@@ -20,6 +20,7 @@
 //declare(strict_types=1);
 require_once __DIR__ . '/../config/db_connect.php';
 require_once __DIR__ . '/../config/auth.php';
+require_once __DIR__ . '/../includes/site_scope.php';
 iam_require_login();
 
 // it_borrower ไม่ต้องเห็น dashboard เลย เด้งไปหน้ายืมของทันที
@@ -33,21 +34,32 @@ $pdo = db();
 // -----------------------------------------------------------------------------
 //  1) สรุปเมทริก
 // -----------------------------------------------------------------------------
-$totalHardware = (int) $pdo->query(
-    "SELECT COUNT(*) FROM hardware_assets"
-)->fetchColumn();
+/* Site scope สำหรับ hardware_assets (ใช้ร่วม 3 query: total / by status / by category) */
+$hwParams = [];
+$hwScope  = site_scope_sql('site_id', $hwParams);
 
-$totalSoftware = (int) $pdo->query(
-    "SELECT COUNT(*) FROM software_licenses"
-)->fetchColumn();
+$hwStmt = $pdo->prepare("SELECT COUNT(*) FROM hardware_assets WHERE {$hwScope}");
+$hwStmt->execute($hwParams);
+$totalHardware = (int) $hwStmt->fetchColumn();
 
-$seatsSummary = $pdo->query("
+$swCntParams = [];
+$swCntScope  = site_scope_sql('site_id', $swCntParams, 'sc');
+$swCntStmt = $pdo->prepare("SELECT COUNT(*) FROM software_licenses WHERE {$swCntScope}");
+$swCntStmt->execute($swCntParams);
+$totalSoftware = (int) $swCntStmt->fetchColumn();
+
+$swSeatParams = [];
+$swSeatScope  = site_scope_sql('site_id', $swSeatParams, 'ss');
+$swSeatStmt = $pdo->prepare("
     SELECT
         COALESCE(SUM(total_seats), 0)                                  AS seats_total,
         COALESCE(SUM(seats_used),  0)                                  AS seats_used,
         COALESCE(SUM(total_seats), 0) - COALESCE(SUM(seats_used), 0)   AS seats_available
     FROM v_software_usage
-")->fetch();
+    WHERE {$swSeatScope}
+");
+$swSeatStmt->execute($swSeatParams);
+$seatsSummary = $swSeatStmt->fetch();
 
 $seatsTotal     = (int) $seatsSummary['seats_total'];
 $seatsUsed      = (int) $seatsSummary['seats_used'];
@@ -56,40 +68,59 @@ $seatsUsedPct   = $seatsTotal > 0 ? round(($seatsUsed / $seatsTotal) * 100) : 0;
 
 // PM ที่ครบกำหนดภายใน 30 วันถัดไป (รวมที่เลยกำหนดแล้ว) — อิง pm_schedules แทน
 // maintenance_logs.next_pm_date เดิม (deprecated) นับเฉพาะ status ที่ยังไม่เสร็จ (Planned/InProgress)
-$upcomingPmCount = (int) $pdo->query("
+$pmCntParams = [];
+$pmCntScope  = site_scope_sql('t.site_id', $pmCntParams, 'pc');
+$pmCntStmt = $pdo->prepare("
     SELECT COUNT(*)
-    FROM pm_schedules
-    WHERE status IN ('Planned','InProgress')
-      AND planned_date IS NOT NULL
-      AND planned_date <= (CURRENT_DATE + INTERVAL 30 DAY)
-")->fetchColumn();
+    FROM (
+        SELECT COALESCE(h.site_id, m.site_id, n.site_id) AS site_id
+        FROM pm_schedules ps
+        LEFT JOIN hardware_assets h ON h.id = ps.asset_id
+        LEFT JOIN mobile_assets   m ON m.id = ps.mobile_id
+        LEFT JOIN network_assets  n ON n.id = ps.network_id
+        WHERE ps.status IN ('Planned','InProgress')
+          AND ps.planned_date IS NOT NULL
+          AND ps.planned_date <= (CURRENT_DATE + INTERVAL 30 DAY)
+    ) t
+    WHERE {$pmCntScope}
+");
+$pmCntStmt->execute($pmCntParams);
+$upcomingPmCount = (int) $pmCntStmt->fetchColumn();
 
 // -----------------------------------------------------------------------------
 //  2) Hardware แยกตามสถานะ
 // -----------------------------------------------------------------------------
-$statusRows = $pdo->query("
+$statusStmt = $pdo->prepare("
     SELECT status, COUNT(*) AS c
     FROM hardware_assets
+    WHERE {$hwScope}
     GROUP BY status
     ORDER BY FIELD(status, 'Active','In Repair','In Stock','Retired')
-")->fetchAll();
-
+");
+$statusStmt->execute($hwParams);
+$statusRows = $statusStmt->fetchAll();
 // -----------------------------------------------------------------------------
 //  3) Hardware แยกตาม category (top 6)
 // -----------------------------------------------------------------------------
-$categoryRows = $pdo->query("
+$categoryStmt = $pdo->prepare("
     SELECT COALESCE(category, 'Uncategorized') AS category, COUNT(*) AS c
     FROM hardware_assets
+    WHERE {$hwScope}
     GROUP BY category
     ORDER BY c DESC
     LIMIT 6
-")->fetchAll();
+");
+$categoryStmt->execute($hwParams);
+$categoryRows = $categoryStmt->fetchAll();
 
 // -----------------------------------------------------------------------------
 //  4) PM ที่ใกล้ถึงกำหนด (รวมเลยกำหนด) — อิง pm_schedules (rolling interval)
 //     JOIN hardware/mobile/network + pm_templates เพื่อโชว์ asset และชื่อ template
 // -----------------------------------------------------------------------------
-$upcomingPm = $pdo->query("
+$pmListParams = [];
+$pmListScope  = site_scope_sql('t.site_id', $pmListParams, 'pl');
+$pmListStmt = $pdo->prepare("
+    SELECT t.* FROM (
     SELECT
         ps.id AS schedule_id,
         ps.planned_date,
@@ -97,6 +128,7 @@ $upcomingPm = $pdo->query("
         COALESCE(h.asset_id, m.asset_id, n.asset_id)       AS asset_code,
         COALESCE(h.brand, m.brand, n.brand)                 AS brand,
         COALESCE(h.model, m.model, n.model)                 AS model,
+        COALESCE(h.site_id, m.site_id, n.site_id)           AS site_id,
         s.site_name,
         pt.name AS template_name,
         DATEDIFF(ps.planned_date, CURRENT_DATE) AS days_left
@@ -108,15 +140,21 @@ $upcomingPm = $pdo->query("
     INNER JOIN pm_templates pt   ON pt.id = ps.template_id
     WHERE ps.status IN ('Planned','InProgress')
       AND ps.planned_date IS NOT NULL
-      AND ps.planned_date <= (CURRENT_DATE + INTERVAL 60 DAY)
-    ORDER BY ps.planned_date ASC
+            AND ps.planned_date <= (CURRENT_DATE + INTERVAL 60 DAY)
+    ) t
+    WHERE {$pmListScope}
+    ORDER BY t.planned_date ASC
     LIMIT 8
-")->fetchAll();
+");
+$pmListStmt->execute($pmListParams);
+$upcomingPm = $pmListStmt->fetchAll();
 
 // -----------------------------------------------------------------------------
 //  5) License ที่ใกล้หมดอายุ (90 วัน)
 // -----------------------------------------------------------------------------
-$expiringLicenses = $pdo->query("
+$swExpParams = [];
+$swExpScope  = site_scope_sql('site_id', $swExpParams, 'se');
+$swExpStmt = $pdo->prepare("
     SELECT
         software_id, software_name, publisher, vendor,
         total_seats, expiry_date,
@@ -124,20 +162,27 @@ $expiringLicenses = $pdo->query("
     FROM software_licenses
     WHERE expiry_date IS NOT NULL
       AND expiry_date <= (CURRENT_DATE + INTERVAL 90 DAY)
+      AND {$swExpScope}
     ORDER BY expiry_date ASC
     LIMIT 8
-")->fetchAll();
+");
+$swExpStmt->execute($swExpParams);
+$expiringLicenses = $swExpStmt->fetchAll();
 
 // -----------------------------------------------------------------------------
 //  6) Software seat utilization
 // -----------------------------------------------------------------------------
-$topUtilization = $pdo->query("
+$swUtParams = [];
+$swUtScope  = site_scope_sql('site_id', $swUtParams, 'su');
+$swUtStmt = $pdo->prepare("
     SELECT software_name, publisher, total_seats, seats_used, seats_available
     FROM v_software_usage
+    WHERE {$swUtScope}
     ORDER BY (seats_used / NULLIF(total_seats,0)) DESC
     LIMIT 5
-")->fetchAll();
-
+");
+$swUtStmt->execute($swUtParams);
+$topUtilization = $swUtStmt->fetchAll();
 $page_title  = 'Dashboard';
 $active_menu = 'dashboard';
 require __DIR__ . '/../includes/header.php';
@@ -150,7 +195,7 @@ require __DIR__ . '/../includes/header.php';
             <div class="card-body">
                 <div class="metric-label">Total Hardware Assets</div>
                 <div class="metric-value"><?= number_format($totalHardware) ?></div>
-                <div class="metric-sub"><i class="bi bi-pc-display"></i> across all sites</div>
+                <div class="metric-sub"><i class="bi bi-pc-display"></i> <?= site_scope_unrestricted() ? 'across all sites' : 'in your sites' ?></div>
             </div>
         </div>
     </div>

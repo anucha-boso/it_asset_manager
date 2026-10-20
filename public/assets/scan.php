@@ -15,6 +15,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../config/db_connect.php';
 require_once __DIR__ . '/../../config/auth.php';
 require_role(['it_admin', 'it_staff', 'it_viewer', 'it_borrower']);
+require_once __DIR__ . '/../../includes/site_scope.php';
 
 $pdo = db();
 
@@ -83,6 +84,12 @@ if ($type === 'hw') {
 if (!$asset) {
     http_response_code(404);
     exit('ไม่พบอุปกรณ์นี้ในระบบ (อาจถูกลบไปแล้ว)');
+}
+
+// เครื่องที่เปิดให้ยืม (is_loanable = 1) ทุกคนที่มีสิทธิ์ Module ดูได้ข้าม Site (เพื่อให้สแกนแล้วยืมได้)
+// เครื่องอื่นตรวจสิทธิ์ Site ตามปกติ (site_id = NULL → เฉพาะ admin)
+if ((int)($asset['is_loanable'] ?? 0) !== 1) {
+    require_site_access($asset['site_id'] !== null ? (int)$asset['site_id'] : null);
 }
 
 $isLoanable = (int)($asset['is_loanable'] ?? 0) === 1;

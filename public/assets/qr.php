@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../config/db_connect.php';
 require_once __DIR__ . '/../../config/auth.php';
+require_once __DIR__ . '/../../includes/site_scope.php';
 require_role(['it_admin', 'it_staff']);
 
 /* หน้านี้ตั้งใจไม่ include includes/header.php (จะได้ไม่มี sidebar/topbar
@@ -34,12 +35,13 @@ if (!in_array($type, ['hw', 'mob', 'net'], true) || $id <= 0) {
 
 $table = ['hw' => 'hardware_assets', 'mob' => 'mobile_assets', 'net' => 'network_assets'][$type];
 $colSql = $type === 'hw'
-    ? "asset_id, brand, model, category, NULL AS device_type"
-    : "asset_id, brand, model, NULL AS category, device_type";
+    ? "site_id, asset_id, brand, model, category, NULL AS device_type"
+    : "site_id, asset_id, brand, model, NULL AS category, device_type";
 $stmt = $pdo->prepare("SELECT {$colSql} FROM {$table} WHERE id = :id");
 $stmt->execute([':id' => $id]);
 $asset = $stmt->fetch();
 if (!$asset) { http_response_code(404); exit('ไม่พบอุปกรณ์นี้'); }
+require_site_access($asset['site_id'] !== null ? (int)$asset['site_id'] : null);   // กัน IDOR ข้าม Site (site_id = NULL → เฉพาะ admin)
 
 $scheme  = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
 $scanUrl = $scheme . '://' . $_SERVER['HTTP_HOST'] . '/it-asset-manager/assets/scan.php?type=' . $type . '&id=' . $id;

@@ -9,7 +9,7 @@ require_once __DIR__ . '/../../config/auth.php';
 require_once __DIR__ . '/../../includes/module_access.php';
 require_role(['it_admin','it_staff']);
 require_module_access('LOANS');
-
+require_once __DIR__ . '/../../includes/site_scope.php';
 
 
 require_once __DIR__ . '/../../includes/csrf.php';
@@ -38,6 +38,24 @@ $loan = $pdo->prepare("
 $loan->execute([':id' => $id]);
 $loan = $loan->fetch();
 if (!$loan) { http_response_code(404); exit('Loan not found'); }
+/* Site scope: it_admin ผ่านทุก Site / it_staff ต้องมี grant ของ Site อุปกรณ์ หรือ Site ผู้ยืม */
+if (!$loan) { http_response_code(404); exit('Loan not found'); }
+$siteChk = $pdo->prepare("
+    SELECT COALESCE(h.site_id, m.site_id, n.site_id) AS asset_site,
+           l.borrower_site_id AS borrower_site
+    FROM asset_loans l
+    LEFT JOIN hardware_assets h ON h.id = l.asset_id
+    LEFT JOIN mobile_assets   m ON m.id = l.mobile_id
+    LEFT JOIN network_assets  n ON n.id = l.network_asset_id
+    WHERE l.id = :id
+");
+$siteChk->execute([':id' => $id]);
+$siteRow    = $siteChk->fetch();
+$assetSite  = $siteRow['asset_site']    !== null ? (int)$siteRow['asset_site']    : null;
+$borrowSite = $siteRow['borrower_site'] !== null ? (int)$siteRow['borrower_site'] : null;
+if (!can_access_site($assetSite) && !can_access_site($borrowSite)) {
+    require_site_access($assetSite);   // ไม่ผ่าน -> แสดงหน้า 403 และ exit
+}
 if (!in_array($loan['status'], ['Pending','Approved'], true)) {
     $_SESSION['flash'] = ['type'=>'warning','message'=>'รายการนี้ไม่อยู่ในสถานะที่ checkout ได้'];
     header('Location: /it-asset-manager/loans/index.php'); exit;
@@ -133,7 +151,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (PDOException $e) {
             $pdo->rollBack();
             error_log('[LOAN CHECKOUT] ' . $e->getMessage());
-            $errors['_general'] = 'บันทึกไม่สำเร็จ: ' . $e->getMessage();
+            $errors['_general'] = 'บันทึกไม่สำเร็จ กรุณาลองใหม่หรือติดต่อ IT Admin';
         }
     }
 }

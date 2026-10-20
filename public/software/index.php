@@ -13,19 +13,26 @@ ini_set("display_errors",1);error_reporting(E_ALL);
 require_once __DIR__ . '/../../config/db_connect.php';
 require_once __DIR__ . '/../../config/auth.php';
 require_role(['it_admin','it_staff','it_viewer']);
-
+require_once __DIR__ . '/../../includes/module_access.php';
+require_once __DIR__ . '/../../includes/site_scope.php';
+require_module_access('SOFTWARE');
 
 
 require_once __DIR__ . '/../../includes/csrf.php';
 $pdo = db();
 
 $sites = $pdo->query("SELECT id, site_name FROM sites ORDER BY site_name")->fetchAll();
+if (!site_scope_unrestricted()) {
+    $allowedSites = array_map('intval', user_site_ids());
+    $sites = array_values(array_filter($sites, fn($s) => in_array((int)$s['id'], $allowedSites, true)));
+}
 $search = trim((string)($_GET['q']     ?? ''));
 $status = trim((string)($_GET['status']?? '')); // ''|active|expiring|expired
 $siteId = isset($_GET['site']) && ctype_digit((string)$_GET['site']) ? (int)$_GET['site'] : 0;
 
 $where  = [];
 $params = [];
+$where[] = site_scope_sql('v.site_id', $params, 'sw');
 
 if ($search !== '') {
     $where[] = '(v.software_name LIKE :q1 OR v.publisher LIKE :q2 OR v.software_id LIKE :q3)';

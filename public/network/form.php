@@ -11,6 +11,7 @@ require_once __DIR__ . '/../../includes/module_access.php';
 require_once __DIR__ . '/../../includes/csrf.php';
 require_role(['it_admin','it_staff']);
 require_module_access('NETWORK');
+require_once __DIR__ . '/../../includes/site_scope.php';
 
 $pdo    = db();
 $id     = isset($_GET['id']) && ctype_digit((string)$_GET['id']) ? (int)$_GET['id'] : 0;
@@ -52,6 +53,7 @@ if ($isEdit) {
     $existing = $stmt->fetch();
     if (!$existing) { http_response_code(404); exit('Not found'); }
     $row = array_merge($row, $existing);
+    require_site_access($existing['site_id'] !== null ? (int)$existing['site_id'] : null);
 
     /* Load WiFi USB peripherals */
     $periStmt = $pdo->prepare("
@@ -65,6 +67,7 @@ if ($isEdit) {
 }
 
 $sites       = $pdo->query("SELECT id, site_name FROM sites ORDER BY site_name")->fetchAll();
+$sites       = array_values(array_filter($sites, fn($s) => can_access_site((int)$s['id'])));
 $deviceTypes = ['Switch','Router','Firewall','Access Point',
                 'Load Balancer','Patch Panel','Media Converter','Router SIM','Other'];
 $statuses    = ['Active','Inactive','In Repair','Retired','On Loan'];
@@ -83,7 +86,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors['asset_id'] = 'จำเป็นต้องระบุรหัสอุปกรณ์';
     if (!in_array($row['device_type'], $deviceTypes, true))
         $errors['device_type'] = 'ประเภทไม่ถูกต้อง';
-
+    /* Site: บังคับเลือก + ต้องเป็น Site ที่มีอยู่จริงและผู้ใช้มีสิทธิ์ ($sites ถูกกรองตามสิทธิ์แล้ว) */
+    if ($row['site_id'] === '' || !ctype_digit($row['site_id'])) {
+        $errors['site_id'] = 'กรุณาเลือก Site';
+    } elseif (!in_array((int)$row['site_id'], array_map('intval', array_column($sites, 'id')), true)) {
+        $errors['site_id'] = 'คุณไม่มีสิทธิ์ใช้ Site นี้';
+    }
     /* unique asset_id */
     if (!isset($errors['asset_id'])) {
         $uq = $pdo->prepare("SELECT id FROM network_assets WHERE asset_id=:aid"
@@ -171,7 +179,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (PDOException $e) {
             $pdo->rollBack();
             error_log('[NET SAVE] ' . $e->getMessage());
-            $errors['_general'] = 'บันทึกไม่สำเร็จ: ' . $e->getMessage();
+            $errors['_general'] = 'บันทึกไม่สำเร็จ กรุณาลองใหม่หรือติดต่อผู้ดูแลระบบ';
         }
     }
 }
@@ -228,8 +236,8 @@ require __DIR__ . '/../../includes/header.php';
             </div>
             <div class="col-md-3">
                 <label class="form-label">Site</label>
-                <select name="site_id" class="form-select">
-                    <option value="">— ไม่ระบุ —</option>
+                <select name="site_id" class="form-select <?= isset($errors['site_id']) ? 'is-invalid' : '' ?>">
+                    <option value="">— เลือก Site —</option>
                     <?php foreach ($sites as $s): ?>
                         <option value="<?= e($s['id']) ?>"
                             <?= (string)$row['site_id']===(string)$s['id']?'selected':'' ?>>
@@ -237,6 +245,7 @@ require __DIR__ . '/../../includes/header.php';
                         </option>
                     <?php endforeach; ?>
                 </select>
+                <?php if (isset($errors['site_id'])): ?><div class="invalid-feedback"><?= e($errors['site_id']) ?></div><?php endif; ?>
             </div>
             <div class="col-md-3">
                 <label class="form-label">Status <span class="text-danger">*</span></label>

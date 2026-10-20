@@ -32,7 +32,10 @@ if (!$employee) {
     exit('ไม่พบข้อมูลพนักงาน กรุณาติดต่อ IT Admin');
 }
 $requestorName = trim($employee['title'] . ' ' . $employee['first_name'] . ' ' . $employee['last_name']);
-$borrowerType  = $_POST['borrower_type'] ?? 'self';
+$borrowerType  = (string)($_POST['borrower_type'] ?? 'self');
+if (!in_array($borrowerType, ['self', 'other', 'external'], true)) {
+    $borrowerType = 'self';   // ค่าแปลกปลอม → ถอยกลับเป็น self (ผู้ขอเอง ซึ่งเป็นค่าที่ยืนยันจาก session แล้ว)
+}
 
 $errors = [];
 
@@ -190,6 +193,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors['mobile_id'] = 'กรุณาเลือก Mobile Asset';
     if ($isNet && (int)$row['network_id'] <= 0)
         $errors['network_id']= 'กรุณาเลือก Network Device';
+        /* กัน tamper: id ที่ส่งมาต้องอยู่ใน Pool ที่ยืมได้และว่างจริง (ตรวจฝั่ง server) */
+    if ($isHW && !isset($errors['asset_id'])
+        && !in_array((int)$row['asset_id'], array_map('intval', array_column($hwAssets, 'id')), true))
+        $errors['asset_id'] = 'อุปกรณ์นี้ไม่อยู่ใน Pool ที่ยืมได้';
+    if (!$isHW && !$isNet && !isset($errors['mobile_id'])
+        && !in_array((int)$row['mobile_id'], array_map('intval', array_column($mobAssets, 'id')), true))
+        $errors['mobile_id'] = 'อุปกรณ์นี้ไม่อยู่ใน Pool ที่ยืมได้';
+    if ($isNet && !isset($errors['network_id'])
+        && !in_array((int)$row['network_id'], array_map('intval', array_column($netAssets, 'id')), true))
+        $errors['network_id'] = 'อุปกรณ์นี้ไม่อยู่ใน Pool ที่ยืมได้';
     if ($borrowerType === 'external' && $row['borrower_ad'] === '')
         $errors['borrower_ad'] = 'จำเป็นต้องระบุ AD Username';
     if ($borrowerType === 'external' && $row['borrower_name'] === '')
@@ -317,7 +330,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         } catch (PDOException $e) {
             error_log('[LOAN CREATE] ' . $e->getMessage());
-            $errors['_general'] = 'บันทึกไม่สำเร็จ: ' . $e->getMessage();
+            $errors['_general'] = 'บันทึกไม่สำเร็จ กรุณาลองใหม่หรือติดต่อ IT Admin';
         }
     }
 }

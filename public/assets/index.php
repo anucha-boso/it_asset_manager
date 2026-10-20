@@ -9,6 +9,7 @@ ini_set("display_errors",1);error_reporting(E_ALL);
 require_once __DIR__ . '/../../config/db_connect.php';
 require_once __DIR__ . '/../../config/auth.php';
 require_once __DIR__ . '/../../includes/module_access.php';
+require_once __DIR__ . '/../../includes/site_scope.php';
 
 require_role(['it_admin', 'it_staff', 'it_viewer', 'it_borrower']);
 require_module_access('ASSETS');
@@ -34,6 +35,7 @@ $offset  = ($page - 1) * $perPage;
 /* ── WHERE builder ───────────────────────────────────────────── */
 $where  = [];
 $params = [];
+$where[] = site_scope_sql('h.site_id', $params);   // จำกัดตาม Site ที่ได้รับสิทธิ์ (admin = ไม่จำกัด)
 
 if ($search !== '') {
     $where[] = '(h.asset_id      LIKE :q1
@@ -130,6 +132,7 @@ $assets = $stmt->fetchAll();
 
 /* ── Dropdown data ───────────────────────────────────────────── */
 $sites = $pdo->query("SELECT id, site_name FROM sites ORDER BY site_name")->fetchAll();
+$sites = array_values(array_filter($sites, fn($s) => can_access_site((int)$s['id'])));
 
 $categories = ['PC','Notebook','Surface','Server','NAS',
                'Printer','Scanner','UPS','Handheld','Tablet',

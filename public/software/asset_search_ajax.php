@@ -12,7 +12,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../config/db_connect.php';
 require_once __DIR__ . '/../../config/auth.php';
-
+require_once __DIR__ . '/../../includes/site_scope.php';
 require_role(['it_admin', 'it_staff']);
 
 header('Content-Type: application/json; charset=utf-8');
@@ -24,19 +24,22 @@ if (mb_strlen($q) < 2) {
 }
 
 $pdo = db();
+$params = [
+    ':q1' => '%' . $q . '%',
+    ':q2' => '%' . $q . '%',
+    ':q3' => '%' . $q . '%',
+];
+$scope = site_scope_sql('site_id', $params, 'sa');   // Site scope (admin => 1=1, ไม่มี grant => 1=0)
 $stmt = $pdo->prepare("
     SELECT id, asset_id, brand, model, category
     FROM hardware_assets
     WHERE status IN ('Active','In Stock')
       AND (asset_id LIKE :q1 OR brand LIKE :q2 OR model LIKE :q3)
+      AND {$scope}
     ORDER BY asset_id
     LIMIT 15
 ");
-$stmt->execute([
-    ':q1' => '%' . $q . '%',
-    ':q2' => '%' . $q . '%',
-    ':q3' => '%' . $q . '%',
-]);
+$stmt->execute($params);
 
 $results = array_map(function ($r) {
     return [

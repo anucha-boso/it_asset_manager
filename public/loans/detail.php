@@ -9,7 +9,8 @@ require_once __DIR__ . '/../../config/auth.php';
 require_once __DIR__ . '/../../includes/module_access.php';
 require_role(['it_admin','it_staff','it_viewer','it_borrower']);
 require_module_access('LOANS');
-
+require_once __DIR__ . '/../../includes/site_scope.php';
+require_once __DIR__ . '/../../includes/require_employee_link.php';
 
 
 require_once __DIR__ . '/../../includes/csrf.php';
@@ -28,6 +29,7 @@ $loan = $pdo->prepare("
         m.serial_number AS mob_serial, m.device_type, m.department AS mob_dept,
         n.asset_id AS net_code, n.brand AS net_brand, n.model AS net_model,
         n.device_type AS net_device_type, n.location AS net_location,
+        h.site_id AS hw_site, m.site_id AS mob_site, n.site_id AS net_site,
         s.site_name AS borrower_site
     FROM asset_loans l
     LEFT JOIN hardware_assets h ON h.id = l.asset_id
@@ -39,10 +41,20 @@ $loan = $pdo->prepare("
 $loan->execute([':id' => $id]);
 $loan = $loan->fetch();
 if (!$loan) { http_response_code(404); exit('Loan not found'); }
-/* borrower ดูได้เฉพาะ loan ของตัวเองเท่านั้น */
-if (is_borrower_only() && $loan['borrower_ad'] !== iam_user()['username']) {
-    http_response_code(403);
-    exit('ไม่มีสิทธิ์ดูรายการนี้');
+/* borrower ดูได้เฉพาะ loan ของตัวเอง (เทียบ employee id เหมือน loans/index.php)
+   staff/viewer ต้องมี Site grant ของอุปกรณ์ หรือของผู้ยืม อย่างใดอย่างหนึ่ง */
+if (is_borrower_only()) {
+    if ((int)($loan['borrower_employee_id'] ?? 0) !== (int)require_employee_link()) {
+        http_response_code(403);
+        exit('ไม่มีสิทธิ์ดูรายการนี้');
+    }
+} else {
+    $assetSite  = $loan['hw_site'] ?? $loan['mob_site'] ?? $loan['net_site'];
+    $assetSite  = $assetSite !== null ? (int)$assetSite : null;
+    $borrowSite = $loan['borrower_site_id'] !== null ? (int)$loan['borrower_site_id'] : null;
+    if (!can_access_site($assetSite) && !can_access_site($borrowSite)) {
+        require_site_access($assetSite); // ไม่ผ่าน -> แสดงหน้า 403 และ exit
+    }
 }
 
 /* Extensions */
